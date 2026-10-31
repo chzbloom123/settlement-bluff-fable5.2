@@ -1,0 +1,15 @@
+# Dependencies -- restored with `npm install`
+node_modules/
+
+# Build output -- Netlify rebuilds this from source (see netlify.toml)
+dist/
+
+# Personal Claude Code settings
+.claude/settings.local.json
+
+# Local env files, logs, OS clutter
+.env
+.env.*
+npm-debug.log*
+.DS_Store
+Thumbs.db
