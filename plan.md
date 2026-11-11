@@ -1,6 +1,6 @@
 # Plan v2 — Hanford Reach Settlement Builder
 
-Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: Milestone 0 is merged. Milestone 1 is done and waiting for Chaz's playtest. Milestone 2 is next.**
+Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: Milestones 0 and 1 are merged. Milestone 2 is under way: the first-person view and its toggle are done and waiting for Chaz's playtest.**
 
 ## How this review was done
 
@@ -129,7 +129,7 @@ Also done here, because Chaz reported them after Milestone 0:
 
 - Each ruin becomes its own record with a stable id, its own seed, its own meshes and colliders (previous plan §2).
 - Collision: a spatial grid, add/remove by id, properly rotated boxes.
-- Camera (per decision 3): a first-person view with field-of-view and head-bob settings; the third-person view kept on a toggle with maths-based collision that ignores thin objects.
+- Camera (per decision 3): a first-person view, with the third-person view on the **V** key. **Done first, as its own pull request, so Chaz could try it before the rest.** Vertical mouse look was also inverted and is now standard in both views. Still to do: maths-based collision for the third-person camera that ignores thin objects, and field-of-view and head-bob settings (with the settings screen in Milestone 4).
 - Movement: fixed 60 Hz simulation with interpolated rendering, jump once per press, a wading limit at the river, soft world bounds.
 - Culling: vegetation split into chunks; buildings culled individually.
 - Resolution that adapts to hold the frame rate; starting preset chosen by a two-second measurement; quality changes without a page reload.

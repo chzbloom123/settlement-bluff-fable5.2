@@ -27,8 +27,10 @@ import { build, preview } from 'vite';
 // `up` is metres above the ground at that spot. North (the river) is -z,
 // west is -x, and the sun sits low in the west-southwest.
 const VIEWS = [
-  // What the player sees on arrival. Uses the game's own spawn point and camera.
-  { name: '00-arrival', asPlayer: true },
+  // What the player sees on arrival, through the game's own spawn point and
+  // camera: first person (the default), then third person.
+  { name: '00-arrival', asPlayer: 'first' },
+  { name: '00-arrival-third-person', asPlayer: 'third' },
   { name: '01-spawn-to-river',     eye: { x: 4, z: -29, up: 1.7 },     target: { x: 4, z: -60, up: 1.5 } },
   { name: '02-main-street-west',   eye: { x: 40, z: -30, up: 1.7 },    target: { x: -60, z: -30, up: 2 } },
   { name: '03-main-street-east',   eye: { x: -45, z: -30, up: 1.7 },   target: { x: 60, z: -30, up: 2 } },
@@ -77,8 +79,10 @@ try {
   await mkdir(outDir, { recursive: true });
 
   for (const view of VIEWS) {
-    if (only && !only.includes(view.name.slice(0, 2))) continue;
-    await page.evaluate((v) => (v.asPlayer ? window.hanford.stillAsPlayer() : window.hanford.still(v)), view);
+    if (only && !only.includes(view.name.slice(0, 2))) continue; // --only=00 renders both arrival views
+    await page.evaluate((v) => (v.asPlayer
+      ? window.hanford.stillAsPlayer(undefined, v.asPlayer)
+      : window.hanford.still(v)), view);
     await page.locator('#game').screenshot({ path: path.join(outDir, `${view.name}.png`), timeout: 120_000 });
     console.log(`  ${view.name}`);
   }

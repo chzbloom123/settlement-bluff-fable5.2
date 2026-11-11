@@ -7,7 +7,9 @@
 
 import * as THREE from 'three';
 
-import { loadSettings, getSettings, saveSettingsName, nextPresetName, PRESETS } from './core/settings.js';
+import {
+  loadSettings, getSettings, saveSettingsName, nextPresetName, PRESETS, loadViewMode, saveViewMode,
+} from './core/settings.js';
 import { Input } from './core/input.js';
 import { FrameStats } from './core/framestats.js';
 import { createRenderer, createComposer, gpuName } from './render/renderer.js';
@@ -18,7 +20,7 @@ import {
 } from './world/environment.js';
 import { createTown, spawnPoint } from './world/town.js';
 import { createScatter, updateWind } from './world/scatter.js';
-import { Player } from './player/player.js';
+import { Player, VIEW_FOV } from './player/player.js';
 import { Hud } from './ui/hud.js';
 
 const canvas = document.getElementById('game');
@@ -103,7 +105,26 @@ async function boot() {
 
   // --- Input wiring ---
   const input = new Input(canvas);
-  input.onPointerLockChange = (locked) => hud.showStartPrompt(!locked);
+  input.onPointerLockChange = (locked) => {
+    hud.showStartPrompt(!locked);
+    hud.showReticle(locked && player.viewMode === 'first');
+  };
+
+  // --- First person / third person ---
+  function setView(mode) {
+    player.setViewMode(mode);
+    camera.fov = VIEW_FOV[player.viewMode];
+    camera.updateProjectionMatrix();
+    resizeSun(settings); // the shadow cascades are fitted to the field of view
+    hud.showReticle(input.pointerLocked && player.viewMode === 'first');
+  }
+  setView(loadViewMode());
+
+  input.onPress('KeyV', () => {
+    setView(player.viewMode === 'first' ? 'third' : 'first');
+    saveViewMode(player.viewMode);
+    hud.showToast(player.viewMode === 'first' ? 'first person' : 'third person');
+  });
 
   canvas.addEventListener('click', () => {
     if (!input.pointerLocked) input.requestPointerLock();
@@ -261,17 +282,19 @@ async function boot() {
       },
 
       /**
-       * Stop the game and draw one frame exactly as the player would see it,
-       * character included. With no argument, that is the view on arrival at
-       * the spawn point; pass { x, z, yaw } to stand somewhere else.
+       * Stop the game and draw one frame exactly as the player would see it.
+       * With no argument, that is the view on arrival at the spawn point;
+       * pass { x, z, yaw } to stand somewhere else, and `view` ('first' or
+       * 'third') to pick the camera.
        */
-      stillAsPlayer(pose = spawn) {
+      stillAsPlayer(pose = spawn, view = player.viewMode) {
         renderer.setAnimationLoop(null);
+        setView(view);
         player.character.root.visible = true;
         player.position.set(pose.x, groundHeight(pose.x, pose.z), pose.z);
         player.velocity.set(0, 0, 0);
         player.yaw = pose.yaw ?? 0;
-        player.pitch = -0.12;
+        player.pitch = -0.05;
         player._initialisedCamera = false;
         player.update(0.016, idle);
         setTime(10);

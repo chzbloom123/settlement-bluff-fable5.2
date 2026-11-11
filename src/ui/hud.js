@@ -12,6 +12,7 @@ export class Hud {
     this.loadingFill = document.getElementById('loading-fill');
     this.start = document.getElementById('start');
     this.toast = document.getElementById('toast');
+    this.reticle = document.getElementById('reticle');
     this._toastTimer = 0;
 
     this.statsVisible = false;
@@ -47,6 +48,11 @@ export class Hud {
     this.statsVisible = force ?? !this.statsVisible;
     this.stats.classList.toggle('hidden', !this.statsVisible);
     this._accum = 1; // refresh the readout on the very next frame
+  }
+
+  /** The small dot marking the centre of the view in first person. */
+  showReticle(visible) {
+    this.reticle.classList.toggle('hidden', !visible);
   }
 
   /** Show a short message at the bottom of the screen for a moment. */

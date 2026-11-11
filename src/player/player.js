@@ -1,5 +1,8 @@
-// The player: a character you can see, a movement controller, and the
-// third-person camera that follows them.
+// The player: a character, a movement controller, and the camera.
+//
+// There are two views. First person looks out through the character's eyes
+// and is the default: building and walking indoors both work better that way.
+// Third person sits over the shoulder, for seeing yourself in your town.
 //
 // Movement is deliberately plain -- velocity, gravity, and axis-aligned box
 // collision with a step-up allowance. Nothing here needs a physics engine, and
@@ -19,11 +22,19 @@ const JUMP_SPEED = 6.4;
 const PLAYER_RADIUS = 0.42;
 const STEP_HEIGHT = 0.62;   // how tall a ledge the player can walk straight up
 
-const EYE_TARGET_HEIGHT = 1.62;
+const EYE_HEIGHT = 1.62;
 const CAMERA_DISTANCE = 4.6;
 const CAMERA_SHOULDER = 0.75;
-const MIN_PITCH = -0.9;
-const MAX_PITCH = 1.05;
+
+// How far the view can tilt, in radians. Positive pitch looks up. Third person
+// stops short of straight up so the camera never swings under the ground.
+const PITCH_LIMITS = {
+  first: { min: -1.45, max: 1.45 },
+  third: { min: -1.05, max: 0.9 },
+};
+
+/** Vertical field of view for each camera, in degrees. */
+export const VIEW_FOV = { first: 66, third: 58 };
 
 // --- Character model --------------------------------------------------------
 
@@ -123,8 +134,8 @@ export class Player {
 
     // Yaw 0 looks north, toward the river. The spawn point can ask for another.
     this.yaw = spawn.yaw ?? 0;
-    this.pitch = -0.12;
-    this.facing = this.yaw;  // the body turns to follow movement, not the camera
+    this.pitch = -0.05;      // positive looks up
+    this.facing = this.yaw + Math.PI; // which way the body is turned
 
     this.walkPhase = 0;
     this.speed = 0;
@@ -134,6 +145,10 @@ export class Player {
     scene.add(this.character.root);
 
     this.colliders = [];
+
+    this.viewMode = 'first';
+    this._eyeY = this.position.y + EYE_HEIGHT;
+    this._applyBodyVisibility();
 
     // Camera boom smoothing state.
     this._cameraPos = new THREE.Vector3();
@@ -152,6 +167,33 @@ export class Player {
     this.colliders = colliders;
   }
 
+  /** Switch between 'first' and 'third' person. The heading is kept. */
+  setViewMode(mode) {
+    this.viewMode = mode === 'third' ? 'third' : 'first';
+    const limits = PITCH_LIMITS[this.viewMode];
+    this.pitch = THREE.MathUtils.clamp(this.pitch, limits.min, limits.max);
+    this._initialisedCamera = false; // don't glide in from the old camera spot
+    this._eyeY = this.position.y + EYE_HEIGHT;
+    this._applyBodyVisibility();
+  }
+
+  /**
+   * In first person the body must not be drawn -- the camera is inside the
+   * head -- but it should still cast a shadow, so you see yourself on the
+   * ground. Switching off colour and depth output does exactly that: nothing
+   * reaches the screen, while the shadow pass still draws it.
+   */
+  _applyBodyVisibility() {
+    const shown = this.viewMode === 'third';
+    this.character.root.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material.colorWrite = shown;
+      o.material.depthWrite = shown;
+      // Keep the unseen body out of the ambient occlusion pass too.
+      o.userData.skipAO = !shown;
+    });
+  }
+
   /** Meshes the camera should not clip through. */
   setCameraObstacles(objects) {
     this._obstacles = objects;
@@ -167,7 +209,10 @@ export class Player {
   _look(input) {
     const { dx, dy } = input.consumeMouse();
     this.yaw -= dx;
-    this.pitch = THREE.MathUtils.clamp(this.pitch - dy, MIN_PITCH, MAX_PITCH);
+    // The browser reports upward mouse movement as negative, so subtracting
+    // makes "mouse up" raise the view.
+    const limits = PITCH_LIMITS[this.viewMode];
+    this.pitch = THREE.MathUtils.clamp(this.pitch - dy, limits.min, limits.max);
   }
 
   _move(dt, input) {
@@ -222,10 +267,14 @@ export class Player {
 
     this.speed = Math.hypot(this.velocity.x, this.velocity.z);
 
-    // Turn the body toward where it is actually going, not where the camera
-    // looks. Turning is eased so the character doesn't snap around.
-    if (this.speed > 0.4) {
-      const target = Math.atan2(this.velocity.x, this.velocity.z);
+    // In third person the body turns toward where it is actually going, not
+    // where the camera looks. In first person it faces where you look, so the
+    // shadow on the ground matches. Turning is eased so nothing snaps around.
+    const firstPerson = this.viewMode === 'first';
+    if (firstPerson || this.speed > 0.4) {
+      const target = firstPerson
+        ? this.yaw + Math.PI
+        : Math.atan2(this.velocity.x, this.velocity.z);
       let delta = target - this.facing;
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
@@ -346,18 +395,44 @@ export class Player {
   }
 
   _updateCamera(dt) {
+    if (this.viewMode === 'first') this._updateFirstPersonCamera(dt);
+    else this._updateThirdPersonCamera(dt);
+  }
+
+  _updateFirstPersonCamera(dt) {
+    // Stepping onto a kerb moves the feet up in a single frame. Easing the
+    // eye height turns that jolt into a quick rise. In the air the eyes follow
+    // exactly, so a jump or a fall never feels rubbery.
+    const targetY = this.position.y + EYE_HEIGHT;
+    const ease = this.onGround ? 1 - Math.exp(-dt * 20) : 1;
+    this._eyeY += (targetY - this._eyeY) * ease;
+
+    this.camera.position.set(this.position.x, this._eyeY, this.position.z);
+
+    const cosPitch = Math.cos(this.pitch);
+    this._cameraTarget.set(
+      this.position.x - Math.sin(this.yaw) * cosPitch,
+      this._eyeY + Math.sin(this.pitch),
+      this.position.z - Math.cos(this.yaw) * cosPitch
+    );
+    this.camera.lookAt(this._cameraTarget);
+  }
+
+  _updateThirdPersonCamera(dt) {
     // Where the camera is looking: roughly the character's head.
     this._cameraTarget.set(
       this.position.x,
-      this.position.y + EYE_TARGET_HEIGHT,
+      this.position.y + EYE_HEIGHT,
       this.position.z
     );
 
     // Where it would like to sit: back along the view direction, offset to one
-    // shoulder so the character doesn't block the centre of the screen.
+    // shoulder so the character doesn't block the centre of the screen. These
+    // point from the head to the camera, the opposite of the way you look --
+    // so looking up (positive pitch) swings the camera down behind you.
     const cosPitch = Math.cos(this.pitch);
     const dirX = Math.sin(this.yaw) * cosPitch;
-    const dirY = Math.sin(this.pitch);
+    const dirY = -Math.sin(this.pitch);
     const dirZ = Math.cos(this.yaw) * cosPitch;
 
     const rightX = Math.cos(this.yaw);
