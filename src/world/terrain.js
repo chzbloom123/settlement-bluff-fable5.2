@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { fbm, ridged, smoothstep, clamp, mix } from '../core/noise.js';
 import { dirtMaps } from '../render/textures.js';
+import { lit } from '../render/shadows.js';
 
 export const WORLD_SIZE = 420;      // metres across, centred on the origin
 export const WATER_LEVEL = 0.0;
@@ -176,7 +177,7 @@ export function createTerrain(settings) {
     t.repeat.set(90, 90);
   }
 
-  const material = new THREE.MeshStandardMaterial({
+  const material = lit(new THREE.MeshStandardMaterial({
     map,
     normalMap,
     roughnessMap,
@@ -185,7 +186,7 @@ export function createTerrain(settings) {
     roughness: 1.0,
     metalness: 0.0,
     dithering: true,   // hides banding across the big smooth gradients
-  });
+  }));
 
   const mesh = new THREE.Mesh(geometry, material);
   mesh.receiveShadow = true;

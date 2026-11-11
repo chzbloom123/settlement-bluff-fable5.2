@@ -1,41 +1,130 @@
-// Sky, sun, fill light, atmospheric fog and the river surface.
+// Sky, sky lighting, atmospheric fog and the river surface.
 //
-// The time of day is fixed at late afternoon. A low sun gives long shadows and
-// rakes across every surface, which is what makes the ruins read as three
+// The time of day is fixed at late afternoon. A lowish sun gives long shadows
+// and rakes across every surface, which is what makes the ruins read as three
 // dimensional. It is also simply the prettiest hour in that country.
+//
+// The sun itself (the light and its shadows) lives in render/shadows.js. This
+// file owns what the sky looks like and the soft light the sky gives off.
 
 import * as THREE from 'three';
 import { WORLD_SIZE, WATER_LEVEL } from './terrain.js';
 
 // Colours the whole scene is built around.
 export const PALETTE = {
-  sunLight: new THREE.Color('#ffdcae'),
-  skyLight: new THREE.Color('#93b3d6'),
+  sunLight: new THREE.Color('#ffd9a8'),
   groundBounce: new THREE.Color('#8a7551'),
-  fog: new THREE.Color('#c2b394'),
-  zenith: new THREE.Color('#4d7ba8'),
-  horizon: new THREE.Color('#d9c39c'),
+  fog: new THREE.Color('#d3c8b0'),
+  zenith: new THREE.Color('#4a7cb0'),
+  horizon: new THREE.Color('#e3cfa6'),
   water: new THREE.Color('#3f5a63'),
 };
 
-// Sun direction, aimed low in the west-southwest.
-export const SUN_DIRECTION = new THREE.Vector3(-0.62, 0.30, 0.42).normalize();
+/** How strong the direct sunlight is, relative to the sky's own light. */
+export const SUN_INTENSITY = 5.0;
+
+// Where the sun sits: 27 degrees up, a little south of due west. The main
+// street runs east-west, so from here the light rakes along it and the
+// buildings' shadows fall mostly along the street instead of across it.
+const SUN_ELEVATION = THREE.MathUtils.degToRad(27);
+const SUN_AZIMUTH = THREE.MathUtils.degToRad(66); // degrees west of south
+export const SUN_DIRECTION = new THREE.Vector3(
+  -Math.cos(SUN_ELEVATION) * Math.sin(SUN_AZIMUTH),
+  Math.sin(SUN_ELEVATION),
+  Math.cos(SUN_ELEVATION) * Math.cos(SUN_AZIMUTH)
+).normalize();
+
+// The sky's colour for any direction. Shared by the sky you see and the sky
+// that lights the scene, so the two can never disagree.
+const SKY_GLSL = /* glsl */ `
+  uniform vec3 zenith;
+  uniform vec3 horizon;
+  uniform vec3 sunDir;
+  uniform vec3 sunColor;
+  uniform vec3 groundColor;
+  uniform float time;
+
+  float skyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float skyNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(skyHash(i), skyHash(i + vec2(1.0, 0.0)), f.x),
+               mix(skyHash(i + vec2(0.0, 1.0)), skyHash(i + vec2(1.0, 1.0)), f.x), f.y);
+  }
+  float skyFbm(vec2 p) {
+    float sum = 0.0, amp = 0.5;
+    for (int i = 0; i < 4; i++) {
+      sum += skyNoise(p) * amp;
+      p = p * 2.03 + 17.0;
+      amp *= 0.5;
+    }
+    return sum;
+  }
+
+  // High thin cloud, combed into streaks by the wind. Returns 0..1 coverage.
+  float cirrus(vec3 dir) {
+    if (dir.y < 0.015) return 0.0;
+    // Project the view direction onto a flat layer far overhead.
+    vec2 p = dir.xz / (dir.y + 0.14);
+    p += vec2(time * 0.004, time * 0.0015);
+    float streaks = skyFbm(vec2(p.x * 0.5 + p.y * 0.35, p.y * 1.5 - p.x * 0.2));
+    float detail = skyFbm(p * 3.3 + 9.0);
+    float cover = smoothstep(0.56, 0.84, streaks) * (0.35 + 0.65 * detail);
+    // Dissolve into the haze near the horizon.
+    return cover * smoothstep(0.015, 0.22, dir.y);
+  }
+
+  vec3 skyColor(vec3 dir) {
+    float h = clamp(dir.y, -1.0, 1.0);
+    float d = max(dot(dir, normalize(sunDir)), 0.0);
+
+    // Vertical gradient, biased so the haze band sits low and thick.
+    vec3 color = mix(horizon, zenith, pow(clamp(h, 0.0, 1.0), 0.42));
+
+    // Dust haze piled up right at the horizon line.
+    color = mix(color, horizon * 1.06, pow(1.0 - abs(h), 9.0) * 0.75);
+
+    // The sky brightens and warms toward the sun.
+    color += sunColor * (pow(d, 6.0) * 0.16 + pow(d, 40.0) * 0.5);
+
+    // Clouds catch the sun: warm cream toward it, cooler grey away from it.
+    float cloud = cirrus(dir);
+    vec3 cloudColor = mix(vec3(0.80, 0.80, 0.82), sunColor * 1.25, 0.35 + 0.65 * pow(d, 3.0));
+    color = mix(color, cloudColor, cloud * 0.6);
+
+    #ifdef SKY_FOR_LIGHTING
+      // What the ground sends back up: a dim warm bounce, not more sky.
+      color = mix(color, groundColor, smoothstep(0.03, -0.12, h));
+    #else
+      // The sun's disc, far brighter than anything else so it blooms.
+      color += sunColor * smoothstep(0.99965, 0.99985, d) * 60.0;
+      // Below the horizon just fade to haze so the seam never shows.
+      color = mix(color, horizon * 0.82, smoothstep(0.0, -0.22, h));
+    #endif
+
+    return color;
+  }
+`;
+
+function skyUniforms() {
+  return {
+    zenith: { value: PALETTE.zenith.clone() },
+    horizon: { value: PALETTE.horizon.clone() },
+    sunDir: { value: SUN_DIRECTION.clone() },
+    sunColor: { value: new THREE.Color('#ffe2b4') },
+    groundColor: { value: PALETTE.groundBounce.clone().multiplyScalar(0.3) },
+    time: { value: 0 },
+  };
+}
 
 export function createSky() {
-  // A large inward-facing sphere with a gradient painted in the fragment
-  // shader. Cheaper and more controllable than a real atmospheric model.
-  const geometry = new THREE.SphereGeometry(1, 40, 24);
-
+  // A large inward-facing sphere painted in the fragment shader. Cheaper and
+  // more controllable than a real atmospheric model.
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    uniforms: {
-      zenith: { value: PALETTE.zenith.clone() },
-      horizon: { value: PALETTE.horizon.clone() },
-      sunDir: { value: SUN_DIRECTION.clone() },
-      sunColor: { value: new THREE.Color('#ffe6bd') },
-    },
+    uniforms: skyUniforms(),
     vertexShader: /* glsl */ `
       varying vec3 vDir;
       void main() {
@@ -47,38 +136,15 @@ export function createSky() {
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform vec3 zenith;
-      uniform vec3 horizon;
-      uniform vec3 sunDir;
-      uniform vec3 sunColor;
+      ${SKY_GLSL}
       varying vec3 vDir;
-
       void main() {
-        vec3 dir = normalize(vDir);
-
-        // Vertical gradient, biased so the haze band sits low and thick.
-        float h = clamp(dir.y, -1.0, 1.0);
-        float t = pow(clamp(h, 0.0, 1.0), 0.42);
-        vec3 color = mix(horizon, zenith, t);
-
-        // Dust haze piled up right at the horizon line.
-        float haze = pow(1.0 - abs(h), 9.0);
-        color = mix(color, horizon * 1.06, haze * 0.75);
-
-        // Broad warm glow around the sun, then a soft disc inside it.
-        float d = max(dot(dir, normalize(sunDir)), 0.0);
-        color += sunColor * pow(d, 26.0) * 0.5;
-        color += sunColor * pow(d, 900.0) * 3.2;
-
-        // Below the horizon just fade to haze so the seam never shows.
-        color = mix(color, horizon * 0.82, smoothstep(0.0, -0.22, h));
-
-        gl_FragColor = vec4(color, 1.0);
+        gl_FragColor = vec4(skyColor(normalize(vDir)), 1.0);
       }
     `,
   });
 
-  const sky = new THREE.Mesh(geometry, material);
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 24), material);
   sky.scale.setScalar(WORLD_SIZE * 2.2);
   sky.frustumCulled = false;
   sky.renderOrder = -1000;
@@ -86,48 +152,55 @@ export function createSky() {
   return sky;
 }
 
-export function createLighting(settings) {
-  const group = new THREE.Group();
-  group.name = 'lighting';
+/**
+ * Light the scene with the sky.
+ *
+ * The sky is photographed once into a small blurred cube map, and every
+ * material then uses it twice over: as soft light arriving from all
+ * directions (blue from above, warm from the haze and the ground), and as
+ * something for shiny surfaces to reflect. Without it, shadows have nothing in
+ * them and metal has nothing to reflect, so both turn black.
+ */
+export function createSkyLight(renderer, scene) {
+  const skyScene = new THREE.Scene();
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    defines: { SKY_FOR_LIGHTING: '' },
+    uniforms: skyUniforms(),
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      ${SKY_GLSL}
+      varying vec3 vDir;
+      void main() {
+        gl_FragColor = vec4(skyColor(normalize(vDir)), 1.0);
+      }
+    `,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), material);
+  skyScene.add(dome);
 
-  // The sun. Everything about the look hangs off this one light.
-  const sun = new THREE.DirectionalLight(PALETTE.sunLight, 3.1);
-  sun.position.copy(SUN_DIRECTION).multiplyScalar(160);
-  sun.castShadow = true;
+  const generator = new THREE.PMREMGenerator(renderer);
+  const target = generator.fromScene(skyScene, 0, 0.1, 100);
+  scene.environment = target.texture;
+  scene.environmentIntensity = 0.9;
 
-  const d = settings.shadowDistance;
-  sun.shadow.mapSize.set(settings.shadowMapSize, settings.shadowMapSize);
-  sun.shadow.camera.left = -d;
-  sun.shadow.camera.right = d;
-  sun.shadow.camera.top = d;
-  sun.shadow.camera.bottom = -d;
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 420;
-  // Bias values fight shadow acne on the large flat terrace. Normal bias does
-  // most of the work; too much and shadows detach from their objects.
-  sun.shadow.bias = -0.0006;
-  sun.shadow.normalBias = 0.035;
-  group.add(sun);
-  group.add(sun.target);
-
-  // Sky and bounce light. Without this the shadowed sides go dead black,
-  // which is the fastest way to look cheap.
-  const hemi = new THREE.HemisphereLight(PALETTE.skyLight, PALETTE.groundBounce, 1.15);
-  group.add(hemi);
-
-  // A very dim fill from the opposite side, standing in for light bouncing off
-  // the dust and the water.
-  const fill = new THREE.DirectionalLight(PALETTE.skyLight, 0.35);
-  fill.position.set(SUN_DIRECTION.x * -100, 40, SUN_DIRECTION.z * -100);
-  group.add(fill);
-
-  return { group, sun, hemi, fill };
+  generator.dispose();
+  material.dispose();
+  dome.geometry.dispose();
+  return target;
 }
 
 export function createFog(scene, settings) {
   // Exponential-squared fog. The density is tuned so the far bluffs read as
   // genuinely distant while the town stays crisp.
-  scene.fog = new THREE.FogExp2(PALETTE.fog, 0.0034);
+  scene.fog = new THREE.FogExp2(PALETTE.fog, 0.0030);
   scene.background = PALETTE.fog.clone();
   return scene.fog;
 }
@@ -145,7 +218,7 @@ export function createWater() {
       skyColor: { value: PALETTE.horizon.clone() },
       sunDir: { value: SUN_DIRECTION.clone() },
       fogColor: { value: PALETTE.fog.clone() },
-      fogDensity: { value: 0.0034 },
+      fogDensity: { value: 0.0030 },
     },
     vertexShader: /* glsl */ `
       uniform float time;

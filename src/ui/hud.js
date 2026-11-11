@@ -11,6 +11,8 @@ export class Hud {
     this.loadingStatus = document.getElementById('loading-status');
     this.loadingFill = document.getElementById('loading-fill');
     this.start = document.getElementById('start');
+    this.toast = document.getElementById('toast');
+    this._toastTimer = 0;
 
     this.statsVisible = false;
     this._accum = 0;
@@ -47,6 +49,13 @@ export class Hud {
     this._accum = 1; // refresh the readout on the very next frame
   }
 
+  /** Show a short message at the bottom of the screen for a moment. */
+  showToast(message, seconds = 1.8) {
+    this.toast.textContent = message;
+    this.toast.classList.remove('faded');
+    this._toastTimer = seconds;
+  }
+
   /** Show a short message on the last line of the performance panel. */
   notify(message, seconds = 2.5) {
     this._notice = message;
@@ -61,6 +70,10 @@ export class Hud {
   update(dt, info) {
     this._accum += dt;
     if (this._noticeTimer > 0) this._noticeTimer -= dt;
+    if (this._toastTimer > 0) {
+      this._toastTimer -= dt;
+      if (this._toastTimer <= 0) this.toast.classList.add('faded');
+    }
 
     if (this.statsVisible && this._accum >= 0.5) {
       this._accum = 0;

@@ -235,19 +235,20 @@ export function asphaltMaps() {
     // Sand blown across the surface, thicker where the road has worn away.
     const sand = clamp((fbm(u * 11 - 40, v * 11, 4) - 0.1) * 2.2, 0, 1) * (0.4 + wear * 0.6);
 
-    let base = 0.14 + chips * 0.1 + wear * 0.05;
+    // Old sun-bleached asphalt is a mid grey, nowhere near black.
+    let base = 0.34 + chips * 0.1 + wear * 0.06;
     base -= crack * 0.07;
-    const dust = 0.55;
+    const dust = 0.62;
     const mixed = base + (dust - base) * sand * 0.65;
 
     return {
       r: mixed * 1.03,
       g: mixed * 1.0,
       b: mixed * 0.94,
-      height: 0.5 + chips * 0.2 - crack * 0.45,
+      height: 0.5 + chips * 0.2 - crack * 0.3,
       rough: 0.9 + chips * 0.08,
     };
-  }, 3.0);
+  }, 1.8);
 }
 
 export function dirtMaps() {
@@ -259,9 +260,9 @@ export function dirtMaps() {
 
     const base = 0.42 + clods * 0.16 + grit * 0.07 + patch * 0.1;
     return {
-      r: base * 1.1,
+      r: base * 1.05,
       g: base * 1.0,
-      b: base * 0.79,
+      b: base * 0.88,
       height: 0.5 + clods * 0.25 + pebble * 0.3 + grit * 0.08,
       rough: 0.93 + grit * 0.05,
     };
@@ -305,9 +306,9 @@ export function grassTuftTexture() {
 
     // Dry cheatgrass: straw at the tip, a little green left at the base.
     const dry = 0.55 + rand() * 0.45;
-    const r = Math.round(150 + dry * 60);
-    const g = Math.round(132 + dry * 44);
-    const b = Math.round(72 + dry * 30);
+    const r = Math.round(158 + dry * 58);
+    const g = Math.round(142 + dry * 50);
+    const b = Math.round(92 + dry * 44);
 
     ctx.strokeStyle = `rgba(${r},${g},${b},${0.75 + rand() * 0.25})`;
     ctx.lineWidth = width;

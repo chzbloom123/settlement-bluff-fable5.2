@@ -143,5 +143,20 @@ kbd {
   white-space: pre;
 }
 
+#toast {
+  position: absolute;
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: rgba(11, 10, 8, 0.55);
+  border: 1px solid rgba(217, 205, 180, 0.25);
+  border-radius: 2px;
+  transition: opacity 0.5s ease;
+}
+
 .hidden { display: none !important; }
 .faded { opacity: 0 !important; }
