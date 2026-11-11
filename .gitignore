@@ -1,8 +1,11 @@
 # Dependencies -- restored with `npm install`
 node_modules/
 
-# Build output -- Netlify rebuilds this from source (see netlify.toml)
+# Build output -- Vercel rebuilds this from source on every push
 dist/
+
+# Frames written by `npm run shots`
+shots/
 
 # Personal Claude Code settings
 .claude/settings.local.json

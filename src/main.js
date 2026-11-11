@@ -9,8 +9,9 @@ import * as THREE from 'three';
 
 import { loadSettings, getSettings, saveSettingsName, nextPresetName, PRESETS } from './core/settings.js';
 import { Input } from './core/input.js';
-import { createRenderer, createComposer } from './render/renderer.js';
-import { createTerrain } from './world/terrain.js';
+import { FrameStats } from './core/framestats.js';
+import { createRenderer, createComposer, gpuName } from './render/renderer.js';
+import { createTerrain, groundHeight } from './world/terrain.js';
 import { createSky, createLighting, createFog, createWater, SUN_DIRECTION } from './world/environment.js';
 import { createTown, spawnPoint } from './world/town.js';
 import { createScatter, updateWind } from './world/scatter.js';
@@ -106,6 +107,7 @@ async function boot() {
 
   input.onPress('KeyH', () => hud.toggleControls());
   input.onPress('F3', () => hud.toggleStats());
+  input.onPress('F4', () => copyReport());
   input.onPress('KeyQ', () => {
     // Cycle quality. Some of the setup (shadow map size, instance counts) is
     // baked in at load, so this reloads the page to apply cleanly.
@@ -122,14 +124,87 @@ async function boot() {
     composer.setSize(window.innerWidth, window.innerHeight);
   });
 
+  // --- Performance report ---
+  // F3 shows these numbers live; F4 copies a fuller report to the clipboard so
+  // it can be pasted into a chat. This is how real hardware gets measured.
+  const frameStats = new FrameStats(600);
+  const drawSize = new THREE.Vector2();
+  let drawCalls = 0;
+  let triangles = 0;
+
+  function buildReport() {
+    const s = frameStats.summary();
+    renderer.getDrawingBufferSize(drawSize);
+    return [
+      'Hanford Reach performance report',
+      `GPU: ${gpuName(renderer)}`,
+      `Preset: ${PRESETS[settings.name].label}`,
+      `Canvas: ${drawSize.x}x${drawSize.y} (window ${window.innerWidth}x${window.innerHeight}, ` +
+        `pixel ratio ${renderer.getPixelRatio().toFixed(2)})`,
+      s
+        ? `Last ${s.frames} frames: avg ${s.avgFps.toFixed(1)} fps (${s.avgMs.toFixed(1)} ms), ` +
+          `1% low ${s.low1Fps.toFixed(1)} fps, worst ${s.worstMs.toFixed(0)} ms`
+        : 'No frames measured yet',
+      `Scene: ${drawCalls} draw calls, ${(triangles / 1000).toFixed(0)}k triangles`,
+      `Position: x ${player.position.x.toFixed(0)}, z ${player.position.z.toFixed(0)}`,
+      `Browser: ${navigator.userAgent}`,
+    ];
+  }
+
+  function copyReport() {
+    const lines = buildReport();
+    hud.toggleStats(true);
+    const copied = navigator.clipboard?.writeText(lines.join('\n'));
+    if (!copied) return showReportForManualCopy(lines);
+    copied
+      .then(() => hud.notify('report copied'))
+      .catch(() => showReportForManualCopy(lines));
+  }
+
+  /** Fallback for browsers that refuse clipboard access. */
+  function showReportForManualCopy(lines) {
+    document.exitPointerLock?.();
+    window.prompt('Copy this report (Ctrl+C), then paste it into the chat:', lines.join(' | '));
+  }
+
   // --- Frame loop ---
-  const clock = new THREE.Clock();
+  // THREE.Timer also pauses itself while the tab is hidden, so coming back to
+  // the game never produces one enormous time step.
+  const timer = new THREE.Timer();
+  timer.connect(document);
   let elapsed = 0;
 
-  renderer.setAnimationLoop(() => {
-    // Clamp the step so a background tab or a long stall doesn't teleport the
-    // player through a wall when the window regains focus.
-    const dt = Math.min(clock.getDelta(), 0.05);
+  /** Keep the sun and its shadow frustum centred on the point of interest. */
+  function aimSun(focus) {
+    lighting.sun.position.copy(focus).add(sunOffset);
+    lighting.sun.target.position.copy(focus);
+    lighting.sun.target.updateMatrixWorld();
+  }
+
+  function setTime(seconds) {
+    updateWind(seconds);
+    water.material.uniforms.time.value = seconds;
+    grade.uniforms.time.value = seconds;
+  }
+
+  function render() {
+    renderer.info.reset();
+    composer.render();
+    drawCalls = renderer.info.render.calls;
+    triangles = renderer.info.render.triangles;
+  }
+
+  function frame(timestamp) {
+    timer.update(timestamp);
+    const rawDt = timer.getDelta();
+
+    // Anything over a second is a stall (a debugger, a sleeping laptop), not a
+    // frame, so it stays out of the statistics.
+    if (rawDt < 1) frameStats.push(rawDt * 1000);
+
+    // Clamp the step so a long stall doesn't teleport the player through a
+    // wall when the game resumes.
+    const dt = Math.min(rawDt, 0.05);
     elapsed += dt;
 
     // While the cursor is free the world keeps running but the player holds
@@ -137,27 +212,62 @@ async function boot() {
     player.update(dt, input.pointerLocked ? input : IDLE_INPUT);
 
     // Sun and shadow frustum ride along with the player.
-    lighting.sun.position.copy(player.position).add(sunOffset);
-    lighting.sun.target.position.copy(player.position);
-    lighting.sun.target.updateMatrixWorld();
+    aimSun(player.position);
+    setTime(elapsed);
+    render();
 
-    updateWind(elapsed);
-    water.material.uniforms.time.value = elapsed;
-    grade.uniforms.time.value = elapsed;
-
-    composer.render();
-
-    hud.update(dt, {
+    hud.update(dt, () => ({
+      stats: frameStats.summary(),
       quality: PRESETS[settings.name].label,
-      drawCalls: renderer.info.render.calls,
-      triangles: renderer.info.render.triangles,
+      width: renderer.getDrawingBufferSize(drawSize).x,
+      height: drawSize.y,
+      drawCalls,
+      triangles,
       x: player.position.x,
       z: player.position.z,
-    });
-  });
+    }));
+  }
 
-  // Handy for poking at the world from the browser console while debugging.
-  window.hanford = { scene, renderer, player, settings, camera, composer };
+  renderer.setAnimationLoop(frame);
+
+  // --- Debug hooks ---
+  // Available on the dev server, or on any build with `?debug` in the address.
+  // `npm run shots` uses these to render the same viewpoints every time.
+  const debugRequested = new URLSearchParams(window.location.search).has('debug');
+  if (import.meta.env.DEV || debugRequested) {
+    const focus = new THREE.Vector3();
+
+    window.hanford = {
+      scene, renderer, player, settings, camera, composer,
+
+      /**
+       * Stop the game and draw one frame from a fixed camera. `eye` and
+       * `target` are { x, z, up } where `up` is metres above the ground there.
+       * The character is hidden and time is frozen, so the same call always
+       * produces the same picture.
+       */
+      still({ eye, target }) {
+        renderer.setAnimationLoop(null);
+        player.character.root.visible = false;
+
+        camera.position.set(eye.x, groundHeight(eye.x, eye.z) + eye.up, eye.z);
+        focus.set(target.x, groundHeight(target.x, target.z) + target.up, target.z);
+        camera.lookAt(focus);
+
+        // Centre the shadows on the ground under the camera, as in play.
+        focus.set(eye.x, groundHeight(eye.x, eye.z), eye.z);
+        aimSun(focus);
+        setTime(10);
+        render();
+      },
+
+      /** Go back to normal play after `still()`. */
+      resume() {
+        player.character.root.visible = true;
+        renderer.setAnimationLoop(frame);
+      },
+    };
+  }
 }
 
 boot().catch((err) => {

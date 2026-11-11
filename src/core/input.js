@@ -25,7 +25,8 @@ export class Input {
 
   _onKeyDown = (e) => {
     // Stop the page scrolling when the player holds space or the arrow keys.
-    if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    // F3 is "find next" in Chrome and Edge; we use it for the performance panel.
+    if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'F3', 'F4'].includes(e.key)) {
       e.preventDefault();
     }
     const code = e.code;

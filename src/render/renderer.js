@@ -32,9 +32,23 @@ export function createRenderer(canvas, settings) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // PCFSoftShadowMap was deprecated in three r185 and falls back to this
+  // anyway. Proper soft, cascaded shadows arrive with the lighting milestone.
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+
+  // Count draw calls across the whole frame (shadows, scene, every post pass)
+  // rather than only the last pass. main.js resets the counters each frame.
+  renderer.info.autoReset = false;
 
   return renderer;
+}
+
+/** The graphics chip the browser is actually drawing with, for the F3 report. */
+export function gpuName(renderer) {
+  const gl = renderer.getContext();
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  // Firefox no longer exposes the extension but reports the name directly.
+  return String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || 'unknown');
 }
 
 export function createComposer(renderer, scene, camera, settings) {
