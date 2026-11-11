@@ -1,102 +1,163 @@
-# Improvement Plan — Hanford Reach Settlement Builder
+# Plan v2 — Hanford Reach Settlement Builder
 
-Review date: 2026-11-10. Reviewed the design brief (`settlement_builder_1.md`) and all source under `src/`.
+Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: proposed, waiting for Chaz's review. No game code has been changed yet.**
 
-## Where things stand
+## How this review was done
 
-**Phase 1 (walk around the ruins) is done, and done well.** There's a third-person character, terrain made from deterministic noise, a merged-geometry town, instanced vegetation with wind sway, a custom sky and water, a post-processing grade, quality presets and a loading screen. The code is clean and well commented.
+1. Read the brief (`settlement_builder_1.md`), the previous plan, and every file under `src/` (about 3,400 lines).
+2. Built the game and rendered it in headless Chromium from 12 fixed viewpoints on the High and Medium presets. Seven of those frames are in `docs/review/`.
 
-**Phases 2–5 haven't started.** Gathering, building, saving and the touch made for Brie don't exist yet. Two files the brief requires are also missing: `BUILDLOG.md` and `README.md`.
+Two limits on what that tells us:
 
-The items below are in priority order. Section 1 is housekeeping to do before any feature work. Section 2 is architecture changes that are cheap now and expensive later. Sections 3–5 are smaller fixes and polish.
+- **This cloud session has no graphics card.** Chromium reported the SwiftShader software renderer. The frames show correctly what the code draws, but they say nothing about frame rate. Real frame rates have to be measured on your hardware (Milestone 0 adds a one-key report for that).
+- I posed still frames; I did not play it with a mouse. Notes on how the camera and movement *feel* come from reading the code.
 
----
+## Where things really stand
 
-## 1. Housekeeping (do first)
+The previous plan called Phase 1 "done, and done well." The code is clean and well organised, and the world is walkable. But that plan was written without rendering the game, and the picture has serious problems. Phase 1 is structurally done and visually unfinished.
 
-- [ ] **Rename `settlement_builder_1.md` to `CLAUDE.md`.** Its own heading says it's meant to be `CLAUDE.md`. Claude Code only loads it automatically under that name, so on the other PC the brief would otherwise be ignored.
-- [ ] **Create `BUILDLOG.md`.** The brief says Phase 1 should create it. Seed it with what Phase 1 built: the stack (Three.js r185 + Vite 8), the camera choice (third-person, over the shoulder), the fixed late-afternoon sun, the quality presets, and anything deferred.
-- [ ] **Create `README.md`** for a beginner, giving the exact commands:
-  - `npm install`, `npm run dev`, `npm run build`
-  - how to deploy
-  - a one-line description of each folder (`core/`, `render/`, `world/`, `player/`, `ui/`)
-- [ ] **Settle the deploy target.** The brief and `netlify.toml` say Netlify, but you're now using Vercel.
-  - On Vercel, import the repo. It detects Vite on its own (build `npm run build`, output `dist`), so no config file is needed.
-  - Keep `netlify.toml` (it's harmless) or delete it, and update the "Deploy target" line in the brief to match.
-- [ ] **Pin the Node version.** Vite 8 needs Node ≥ 20.19. Add `"engines": { "node": ">=20.19" }` to `package.json` so Vercel, Netlify and both PCs all use a compatible version.
-- [ ] **Add the Q (cycle quality) key to the controls list in `index.html`.** It works but isn't listed.
+### What the renders show
 
-## 2. Architecture changes to make before Phase 3 (building)
+| # | Problem | Cause in the code | Frame |
+|---|---|---|---|
+| 1 | The first thing the player sees is a black wall. | Spawn yaw is π, which faces **south** into a shadowed storefront 8 m away. The comment says "facing the river"; the river is north. | [01](docs/review/01-spawn.jpg) |
+| 2 | Shadows, roads and shaded walls are near-black. | Sun is only 22° high, there is almost no fill light in shadow, and the grade then adds contrast 1.14, a heavy vignette and a cool shadow tint. Asphalt is also authored very dark. | [02](docs/review/02-main-street.jpg) |
+| 3 | Cars, the water tower, roofs and sign frames are black silhouettes. | The `rust` material is 65% metallic, and the scene has no environment map. A metal with nothing to reflect renders black. | [02](docs/review/02-main-street.jpg) |
+| 4 | Storefront display windows and doors are bricked up with cracked concrete. | `storefront()` builds a solid concrete front wall first, then lays the painted wall with openings over it, so the openings show concrete. | [03](docs/review/03-storefront.jpg) |
+| 5 | Shadow edges are saw-toothed. | `PCFSoftShadowMap` is deprecated in three r185 and silently falls back to hard shadows. One shadow map covers 260 m, so a texel is 6 cm on High and 14 cm on Low. | [03](docs/review/03-storefront.jpg) |
+| 6 | A huge black slab hangs in the air on the way to the river. | `roadStrip()` lays flat boxes at one height each. That works on the flat terrace and fails on the slope down to the water. | [04](docs/review/04-river-track.jpg) |
+| 7 | On High, every bush and grass tuft sits in a dark rectangle. | The ambient-occlusion pass ignores texture cut-outs, so it shades the whole invisible quad. Medium has no AO and no rectangles. | [05](docs/review/05-steppe-high-ao.jpg) vs [06](docs/review/06-steppe-medium-no-ao.jpg) |
+| 8 | Half of each sagebrush is black. | Double-sided cut-out quads light their back faces with a flipped normal. | [06](docs/review/06-steppe-medium-no-ao.jpg) |
+| 9 | Peeling paint reads as leopard spots, and the tiling is obvious. | One noise blob pattern, repeated every 2.2 m on every wall. | [03](docs/review/03-storefront.jpg) |
+| 10 | The "distant industrial silhouettes" are plain grey boxes standing in the river. | `horizonStructures()` places them at z = −104 to −134, which is the river channel. | [07](docs/review/07-aerial.jpg) |
+| 11 | The world visibly ends. | The terrain is a 420 m square with cut edges; the far bluff is a slab. | [07](docs/review/07-aerial.jpg) |
+| 12 | The river is a flat white-grey sheet. | No shoreline blend, no depth colour, and the sparkle term is too strong. | [04](docs/review/04-river-track.jpg) |
+| 13 | The character is a stack of plain boxes. | Intentional in Phase 1, but it clashes with the "big-budget 2010 game" look the grade is aiming for. | all |
 
-These are the main findings. The current structure is fine for walking around a fixed scene, but it gets in the way of "restore this ruin" and "remove what I built."
+### Problems found by reading the code
 
-- [ ] **Give every ruin its own merged mesh.** At the moment `createTown()` uses one `MeshBuilder`, so the whole town becomes one mesh per material. Restoring or removing a single building would mean rebuilding the whole town. Instead:
-  - Have each ruin function (`gasStation`, `diner`, …) fill its own builder and return a `{ id, group, colliders, footprint }` record.
-  - Keep those records in a registry keyed by a stable id, e.g. `"gas-station"` or `"house-3"`. Save data will reference these ids.
-  - This also brings back frustum culling: right now the whole town is drawn even when it's behind the camera.
-  - Draw calls rise from about 10 to about 10 × the number of buildings. That's still fine on the target hardware.
-- [ ] **Make colliders dynamic.**
-  - `player.colliders` is a flat array scanned every frame, and nothing can be added to or removed from it after load.
-  - Add `addColliders(id, list)` and `removeColliders(id)`. A simple uniform grid (cells of about 8 m) would keep collision checks cheap as she builds.
-- [ ] **Make camera collision cheap.** `_updateCamera` raycasts against the full terrain mesh (100k+ vertices) and the whole town on every frame. Options:
-  - Raycast only against nearby per-building groups (this follows from the first item).
-  - Or test the camera ray against the collider boxes plus the `groundHeight()` function instead of the triangles.
-  - Or add `three-mesh-bvh`.
-- [ ] **Let vegetation make way for structures.** Grass and sage are placed once at load and avoid only the original colliders. Anything she builds later will have bushes poking through the floor. Keep a placement index for each `InstancedMesh` so instances inside a new footprint can be hidden (scale them to 0) and shown again when the structure is removed.
-- [ ] **Decide the save format now, before Phase 2 writes any state.**
-  - Use one key, e.g. `hanford.save.v1`, holding `{ version, inventory, structures: [{ id, type, x, z, rotY }], ruinsState: { [ruinId]: 'ruined' | 'cleared' | 'restored' }, collected: [nodeIds] }`.
-  - Gather points come from a seed, so a stable id per node is enough to remember what's already been collected.
-  - Save on every change (it's tiny) and again on `visibilitychange`/`pagehide`.
-  - Include a `version` field and a migration step so later updates don't wipe her town.
-- [ ] **Save before the quality toggle reloads the page.** Pressing Q calls `window.location.reload()`. That's harmless today, but once progress exists it must save first.
+- **Nothing stops the player leaving the map or walking along the river bed.** There are no world bounds and no water handling.
+- **No building can be entered.** Every building is one solid collision box with a black box inside. That matters for a game about making a home.
+- **Building sizes depend on build order.** `ruins.js` uses one shared random stream. Rebuilding one ruin later (restore, remove) would change the size of others. Each ruin needs its own seed.
+- **The camera boom is expensive and twitchy.** It raycasts every frame against the full terrain (103,000 vertices on High) and all town geometry, including power cables, so the camera pops inward when a cable crosses it.
+- **The starting quality is guessed from CPU core count**, which says nothing about the graphics chip. Changing quality reloads the page.
+- **All vegetation is drawn every frame**, wherever the camera points (17,000 grass + 5,200 sage instances on High, culling off).
+- **High runs about ten full-screen passes** (AO, bloom, tone map, grade, SMAA). On integrated graphics, full-screen passes are the main cost.
+- Console warnings on every load: `THREE.Clock` deprecated, `PCFSoftShadowMap` deprecated.
 
-## 3. Correctness and robustness fixes
+## Review of the previous plan
 
-- [ ] **Stop F3 opening the browser's find bar.** F3 is "find next" in Chrome and Edge. Call `e.preventDefault()` for F3 (and for any other function keys you bind) in `Input._onKeyDown`.
-- [ ] **Stop shadows shimmering while walking.** The sun's shadow camera follows the player continuously, so shadow edges crawl. Round the shadow camera's position to whole shadow-map texels: texel size = `2 * shadowDistance / shadowMapSize`.
-- [ ] **Show a friendly message when WebGL isn't available.** If `createRenderer` throws, the player only sees "something broke -- check the console." Catch that case and say "This browser/GPU can't run WebGL 2 — try Chrome or Edge with hardware acceleration on."
-- [ ] **Stop holding Space from bouncing on repeat.** Make jump fire once per press, using `onPress` or a "jump released" check.
-- [ ] **Move SMAA earlier in the chain.** It currently runs after the grade, so it softens the film grain and vignette. Order it as Output → SMAA → grade, or turn the grain down to match.
-- [ ] **Replace `THREE.Clock`** with `THREE.Timer` if r185 marks `Clock` deprecated (check the console for warnings).
-- [ ] **Reduce oversized colliders on rotated objects.** `collideBox` uses the bounding square for rotated boxes, so the car hulks at 0.9 and 2.4 rad block more ground than they look like they cover. Either accept it or split each car into two smaller boxes.
-- [ ] **Clean up the loading-overlay timer.** `finishLoading` uses a hard-coded `setTimeout(950)` that must stay in sync with the CSS transition. Listen for `transitionend` instead.
+| Section | Verdict |
+|---|---|
+| §1 Housekeeping | Agree with all of it. Folded into Milestone 0. |
+| §2 Architecture (per-ruin meshes, dynamic colliders, vegetation clearing, save format) | Agree. Three changes: give each ruin its own random seed; replace the camera raycast with a maths test against collider boxes and the height function (no new library); do the refactor *while* reworking the buildings, so `ruins.js` is rewritten once, not twice. |
+| §3 Fixes (F3, jump repeat, shadow shimmer, SMAA order, Clock) | All correct. Shadow shimmer is solved by the cascaded shadows in Milestone 1. |
+| §4 Feature roadmap | Keep as written. Moved after the visual, smoothness and interface work, as you asked. |
+| §5 Performance | Correct but too light. It has no way to measure, and misses culling, pass count and resolution scaling. |
+| Missing entirely | Any visual review, any interface design beyond a list of keys, walkable interiors, world bounds. |
 
-## 4. Feature roadmap (from the brief)
+## Decisions I need from you
 
-### Phase 2 — Gather
-- [ ] Salvage nodes with a stable id each: scrap piles at the debris piles, timber from the collapsed houses, glass at the storefronts, sage and cottonwood out on the steppe, river stone on the gravel bar.
-- [ ] Interaction: aim at or stand near a node and press **E** to pick it up, with a short hold time and a soft pickup sound or visual pop.
-- [ ] An inventory HUD showing 5–7 resources with names that fit the setting (e.g. *Scrap Tin*, *Weathered Board*, *Basalt*, *Sage Bundle*, *Copper Wire*, *Old Glass*).
-- [ ] Respawn rule: landscape nodes regrow slowly, ruin salvage is used up for good.
+Each has a default. If you say "go with the defaults", I will.
 
-### Phase 3 — Build
-- [ ] A build mode toggle (**B**) and a radial or bottom-bar catalog of about a dozen pieces: walls, gate, water barrel, garden bed, lean-to, lookout, string lights, porch swing, windmill, and so on.
-- [ ] A ghost preview tinted green or red for valid or invalid placement, with grid snapping and **R** to rotate.
-- [ ] Restoring ruins: select a ruin footprint to clear it (which pays out salvage), then rebuild it. This depends on the per-ruin meshes from Section 2.
-- [ ] Removal with a full refund, plus one level of undo (**Ctrl+Z**).
+1. **Art direction.** The code aims for "late-2000s big-budget game", but geometry made of boxes and textures made of noise cannot reach that, and the near-miss looks cheap.
+   - **A (recommended): a stylised golden-hour diorama.** Clean simple shapes, strong warm light, soft shadows, a dusty palette with a few saturated accents. Stays fully procedural, loads in seconds, runs on integrated graphics, and suits "cozy".
+   - B: asset-driven realism. Downloaded photo textures, sky photographs and 3D models. Tens of megabytes to download, heavier on Brie's machine, and the boxy buildings would still show.
+2. **Can Brie walk inside buildings?** Recommended: ruins stay closed but get a dim visible interior instead of a black box; a building becomes walkable when she restores it. It adds work to Milestone 6.
+3. **The character.** Recommended: rebuild it procedurally with better proportions and smoother animation. Alternative: a free rigged model from a CC0 pack, which is the one place Blender could earn its keep.
+4. **Brie's computer.** What will she play on? The brief says "mid-range mini PC and a laptop". I will tune Low for integrated graphics unless you tell me otherwise.
+5. **Deploy target.** Recommended: Vercel only. Delete `netlify.toml` and update the brief.
+6. **Merging.** Recommended: one draft pull request per milestone; you open the Vercel preview, play it, and merge. I do not merge.
 
-### Phase 4 — Persist
-- [ ] Use the schema from Section 2. Test by closing the tab mid-build and reopening it, in both Chrome and Edge.
-- [ ] Optional: export and import the save as a JSON file, as a backup if browser data gets cleared. This stays within the "local only" rule.
+## Milestones
 
-### Phase 5 — Polish and Brie
-- [ ] Ambient audio (wind, distant river, a creaking sign), using WebAudio started on the first click.
-- [ ] A slow day–dusk cycle. Windows of restored buildings light up at dusk, so "the place feels more alive" is something she can see.
-- [ ] A personal touch for Brie, to be decided. Ideas: a hand-painted welcome sign that shows her name once the town gate is built, or a mailbox at the first restored house.
+Each milestone is one pull request and ends at a playtest checkpoint. Sizes are relative: S, M, L.
 
-## 5. Performance notes
+### M0 — Housekeeping and measuring tools (S)
 
-- The terrain is 320² segments on High, about 100k vertices. That's fine for drawing but expensive to raycast (see Section 2).
-- The camera's far plane is 340–520 m and the sky sphere is about 924 m. The sky only renders because `gl_Position = pos.xyww` forces it to the far plane; keep it that way if the sky is ever changed.
-- `GTAOPass` at 12 samples is the most expensive pass. Consider using 8 samples on High and checking on the mini PC.
-- Hide the `window.hanford` debug global behind `import.meta.env.DEV` so it isn't in production builds.
+- Rename the brief to `CLAUDE.md`; write `README.md` and `BUILDLOG.md`; pin Node; settle on Vercel.
+- `npm run shots`: renders the fixed viewpoints, so every visual change comes with before/after frames.
+- A performance report on **F3**: average and worst frame times, graphics chip name, preset, resolution, and a "copy" button. You paste it to me from the real machine.
+- Unit tests (Vitest) for logic that must never break: save data, inventory, collision.
+- Clear the two deprecation warnings.
 
----
+**Done when:** the shots script runs in one command, and you have pasted me one F3 report from your small PC.
 
-## Suggested order of work
+### M1 — Light and exposure (M)
 
-1. Do Section 1, then commit.
-2. Do the Section 2 refactor (per-ruin meshes and dynamic colliders), then check that walking around still feels the same.
-3. Phase 2, with the save format in place from day one.
-4. Phase 3, then Phase 4 hardening, then Phase 5.
-5. Pick off the Section 3 fixes along the way.
+The largest improvement per line of code. No geometry changes.
+
+- Spawn facing the river, with a composed first view.
+- Sky-based environment lighting, so metal reflects the sky and shadows get blue fill.
+- Rebalance sun height, sun and sky strength, exposure and the grade. Tone down contrast, vignette and grain.
+- Cascaded shadow maps with a soft filter, replacing the single deprecated one.
+- Ambient occlusion that respects foliage cut-outs, at half resolution.
+- Merge tone mapping and grading into one pass; antialias before grain.
+- Sky: thin procedural cloud layers, a real sun disc, haze that matches the fog.
+
+**Done when:** in all fixed viewpoints nothing important is unreadably dark, cars and metal read as rusted steel, shadows have clean soft edges, and the bush rectangles are gone.
+
+### M2 — Structure and smoothness (M)
+
+- Each ruin becomes its own record with a stable id, its own seed, its own meshes and colliders (previous plan §2).
+- Collision: a spatial grid, add/remove by id, properly rotated boxes.
+- Camera: maths-based collision, pull in fast and ease out slowly, ignore thin objects.
+- Movement: fixed 60 Hz simulation with interpolated rendering, jump once per press, a wading limit at the river, soft world bounds.
+- Culling: vegetation split into chunks; buildings culled individually.
+- Resolution that adapts to hold the frame rate; starting preset chosen by a two-second measurement; quality changes without a page reload.
+
+**Done when:** walking feels the same or better, F3 on your PC shows a steady frame rate on Low at 1080p (target 45 fps or better on integrated graphics; we agree the number after the first report), and the camera no longer pops under power lines.
+
+### M3 — World art pass (L)
+
+- Buildings: real window and door openings with frames, broken glass, trim, fascia, corrugated roofing, brick chimneys, dim interiors, sign shapes.
+- Surfaces: weathering that follows edges and ground level instead of uniform spots; large-scale variation to hide tiling.
+- Roads: ribbons that follow the ground, soft edges, faded centre line, weeds in cracks; a real gravel track to the river.
+- Terrain: rock on steep faces, strata on the bluffs, a wet band at the shore, and a ring of low distant hills so the map never ends.
+- Water: depth colour, shoreline blend, sky reflection, calmer sparkle.
+- Plants: correct lighting, per-plant colour variation, fuller sagebrush, rabbitbrush in yellow bloom, tumbleweeds.
+- Horizon: reactor-block and stack silhouettes far off on the plateau, in haze.
+- Character rebuild (per decision 3).
+
+**Done when:** you walk the whole town on the preview and nothing reads as a placeholder.
+
+### M4 — Interface (M)
+
+- Title and pause screen: resume, quality, mouse sensitivity, invert-Y, volume, key list.
+- A HUD visual language (enamel-sign and typewriter flavour, bundled font, no network requests) for prompts, inventory, notices and the build bar.
+- Interaction prompt and a small reticle.
+- Comfort options: interface scale, reduced motion (no grain, no camera bob).
+- Friendly messages when WebGL is missing or something fails.
+- Plain HTML and CSS, no framework, so it stays readable for a beginner.
+
+**Done when:** a new player can start, pause, change settings and resume without being told a key.
+
+### M5 — Gather (Phase 2) · M6 — Build (Phase 3) · M7 — Persist (Phase 4) · M8 — Polish and Brie (Phase 5)
+
+As in the previous plan §4, with these changes:
+
+- The save format and autosave go in at the start of M5, not in M7. M7 becomes hardening: versioned migration, export/import file, tab-close tests.
+- M6 includes vegetation making way for structures, and walkable restored buildings (per decision 2).
+- M8: ambient audio, a slow day-to-dusk cycle with lit windows in restored buildings, ambient wildlife, and the touch for Brie.
+
+## How we work
+
+- One draft pull request per milestone, with before/after frames from `npm run shots`.
+- You check the Vercel preview on real hardware and send an F3 report.
+- `BUILDLOG.md` is appended at the end of every session, as the brief requires.
+- The scope fence in the brief stands: no combat, no NPCs, one map, local saves only.
+
+## Software and connections
+
+| Tool | Recommendation |
+|---|---|
+| Blender | **Not now.** Under direction A everything stays procedural. It becomes useful only if we choose a rigged character model or baked assets; I can install it headless here at that point. A live link to Blender on your small PC would not help. |
+| A GPU for this session | Would let me measure frame rate here. Not required: Brie's machine is the real target, and the F3 report covers it. |
+| Vercel connector | Optional. It currently refuses access to your team scope. Authorising it lets me read preview build status and logs. |
+| New npm packages | `vitest` (tests) only. No rendering libraries beyond three.js. |
+
+## Not verified
+
+- Frame rate on any real graphics chip.
+- That your screen shows the same darkness as these software-rendered frames. The lighting maths is the same on any renderer, so I expect it to, but please confirm.
+- How movement and the camera feel in the hand.
