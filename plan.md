@@ -1,6 +1,6 @@
 # Plan v2 — Hanford Reach Settlement Builder
 
-Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: reviewed by Chaz. Milestone 0 is done. One decision is open (first or third person). Milestone 1 is next.**
+Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: reviewed by Chaz, all decisions made. Milestone 0 is done and waiting for his playtest. Milestone 1 is next.**
 
 ## How this review was done
 
@@ -64,14 +64,14 @@ The previous plan called Phase 1 "done, and done well." The code is clean and we
 |---|---|---|
 | 1 | **Art direction:** a stylised golden-hour diorama, fully procedural. Clean shapes, strong warm light, soft shadows, a dusty palette with a few saturated accents. | Agreed |
 | 2 | **Interiors:** ruins stay closed with a dim visible interior; a building becomes walkable when Brie restores it. | Agreed |
-| 3 | **Camera:** first person or third person. | **Open** — see below |
+| 3 | **Camera:** first person, with the third-person view kept on a toggle key. First person solves today's problems; the toggle leaves room for a better character later. | Agreed — reasoning below |
 | 4 | **Hardware:** Brie plays on an older gaming PC, roughly a GTX 1070. The look is tuned for that machine: High preset, 60 fps at 1080p. Chaz's integrated-graphics PC must stay playable on Low for testing, but does not limit the art. | Agreed |
 | 5 | **Hosting:** Vercel only. `netlify.toml` is deleted. | Done |
 | 6 | **Merging:** one draft pull request per milestone; Chaz plays the Vercel preview and merges. | Agreed |
 
 ### Decision 3: first person or third person
 
-**Recommendation: first person, keeping the current third-person view on a toggle key.**
+**Decided: first person, keeping the current third-person view on a toggle key.**
 
 Why first person suits this game:
 

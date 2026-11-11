@@ -41,9 +41,9 @@ Built on a small PC with integrated graphics, then pushed to GitHub and hosted o
 - Hosting is Vercel only.
 - Brie plays on an older gaming PC with roughly a GTX 1070. That is the machine the look is tuned for. Chaz's integrated-graphics PC must stay playable on Low for testing, but does not limit the art.
 - One draft pull request per milestone; Chaz plays the preview and merges.
+- Camera: first person, with the third-person view kept on a toggle key. First person fixes today's problems (weak character model, awkward building and interiors); the toggle leaves room for a better character later. The switch itself is Milestone 2 work.
 
 **Open**
-- First person or third person. See `plan.md`, decision 3.
 - No performance report from real hardware yet.
 
 **Known broken, scheduled**
