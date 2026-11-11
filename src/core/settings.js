@@ -99,6 +99,26 @@ export function saveSettingsName(name) {
   }
 }
 
+const VIEW_KEY = 'hanford.view.v1';
+
+/** The camera view the player last used: 'first' (the default) or 'third'. */
+export function loadViewMode() {
+  try {
+    if (localStorage.getItem(VIEW_KEY) === 'third') return 'third';
+  } catch {
+    // Storage unavailable: fall through to the default.
+  }
+  return 'first';
+}
+
+export function saveViewMode(mode) {
+  try {
+    localStorage.setItem(VIEW_KEY, mode);
+  } catch {
+    // Ignore -- the game still runs, it just won't remember the choice.
+  }
+}
+
 /** Cycle low -> medium -> high -> low. Returns the new preset name. */
 export function nextPresetName(name) {
   const order = ['low', 'medium', 'high'];

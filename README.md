@@ -28,6 +28,7 @@ The game opens in your browser. Leave the terminal open while you play; press Ct
 | Shift | Run |
 | Space | Jump |
 | Mouse | Look (click the game first) |
+| V | Switch between first person and third person (remembered) |
 | Esc | Release the mouse |
 | H | Hide the key list |
 | [ and ] | Slower or faster mouse (remembered) |
@@ -44,7 +45,7 @@ Adding `?q=low`, `?q=medium` or `?q=high` to the address forces a quality level 
 | `npm run build` | Builds the finished site into `dist/` |
 | `npm run preview` | Serves the built site locally, to check it before deploying |
 | `npm test` | Runs the automated tests |
-| `npm run shots -- name` | Renders the game from 13 fixed viewpoints into `shots/name/`, for before/after comparisons. Needs Playwright; the instructions are at the top of `tools/shots.mjs` |
+| `npm run shots -- name` | Renders the game from 14 fixed viewpoints into `shots/name/`, for before/after comparisons. Needs Playwright; the instructions are at the top of `tools/shots.mjs` |
 
 ## Deploying
 
@@ -58,7 +59,7 @@ The site is hosted on Vercel, which is connected to this GitHub repository. Ever
 | `src/core/` | Input, quality settings, noise functions, frame-time statistics |
 | `src/render/` | The renderer, the sun and its shadows, post-processing, and the textures (all drawn in code at load time) |
 | `src/world/` | Terrain, sky, water, the town's buildings, vegetation |
-| `src/player/` | The character, movement and camera |
+| `src/player/` | The character, movement, and the first- and third-person cameras |
 | `src/ui/` | The on-screen display and its styles |
 | `tests/` | Automated tests |
 | `tools/` | Development tools that are not part of the game |

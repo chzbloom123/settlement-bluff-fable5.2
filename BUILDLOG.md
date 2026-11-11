@@ -77,3 +77,26 @@ Milestone 0 was merged after Chaz's playtest. He reported that A and D were fixe
 **Known, scheduled**
 - Leopard-spot paint, blobby rust and asphalt textures, black tyres, the car parked through a porch, grey boxes on the horizon, the visible world edge, the flat river: Milestone 3.
 - Holding Space repeats the jump; the camera pops under power lines: Milestone 2.
+
+## 2026-11-11 — Milestone 2, part 1: first person and the V toggle
+
+Milestone 1 was merged after Chaz's playtest ("MUCH better and much smoother"). He asked to try the first/third person toggle before going further, so it was built ahead of the rest of Milestone 2.
+
+**Built**
+- **First person** is the default view. The camera sits at eye height (1.62 m) with a 66 degree field of view. Eye height eases over steps so kerbs don't jolt, and follows exactly in the air.
+- **V** switches to third person and back. The choice is remembered. Switching keeps the heading.
+- In first person the body is not drawn but still casts a shadow, so you see yourself on the ground. It is done by switching off the body materials' colour and depth output; hiding the object would remove its shadow too.
+- A small centre dot marks the middle of the view in first person.
+- **Vertical mouse look was inverted** (mouse up looked down) and is now standard in both views. Found while writing the camera tests; nobody had reported it.
+- `npm run shots` renders the arrival view in both modes.
+- Ten new tests cover both views: mouse direction, camera placement, body visibility, switching.
+
+**Decided**
+- `pitch` on the player now means "positive looks up" in both views.
+- No head bob. A setting for it, and for field of view, comes with the settings screen (Milestone 4).
+
+**Known, scheduled**
+- The third-person camera still pops in under power lines: rest of Milestone 2.
+- Chain-link fences have no collision, so in first person you can walk through one and see it clip: rest of Milestone 2.
+- House porches are 3 cm too tall to step onto without jumping: rest of Milestone 2.
+
