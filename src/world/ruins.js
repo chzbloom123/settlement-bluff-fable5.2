@@ -51,10 +51,16 @@ function interiorShell(b, f, w, h, d, baseY, rotY) {
   b.add('dark', box(w - inset, h - 0.2, d - inset, ...f.xyz(0, baseY + h / 2 - 0.1, 0), rotY, 4));
 }
 
-/** Four walls of a rectangular building. `walls` supplies the openings per side. */
+/**
+ * Four walls of a rectangular building. `walls` supplies the openings per
+ * side. Pass `front: null` to leave the front wall out, for buildings that
+ * add their own street face.
+ */
 function shell(b, f, mat, w, d, h, baseY, rotY, walls = {}) {
   const t = walls.thickness ?? 0.3;
-  b.add(mat, wallWithOpenings(w, h, t, walls.front ?? [], ...f.xyz(0, baseY, d / 2), rotY));
+  if (walls.front !== null) {
+    b.add(mat, wallWithOpenings(w, h, t, walls.front ?? [], ...f.xyz(0, baseY, d / 2), rotY));
+  }
   b.add(mat, wallWithOpenings(w, h, t, walls.back ?? [], ...f.xyz(0, baseY, -d / 2), rotY));
   b.add(mat, wallWithOpenings(d, h, t, walls.left ?? [], ...f.xyz(-w / 2, baseY, 0), rotY + Math.PI / 2));
   b.add(mat, wallWithOpenings(d, h, t, walls.right ?? [], ...f.xyz(w / 2, baseY, 0), rotY + Math.PI / 2));
@@ -171,7 +177,8 @@ export function diner(b, x, z, rotY = 0) {
   });
 
   // Stainless skirt and parapet band -- the whole diner read in two stripes.
-  b.add('rust', box(w + 0.3, 0.85, d + 0.3, ...f.xyz(0, g + 0.55, 0), rotY, 3.0));
+  // Stands 5 cm proud of the wall; flush surfaces flicker against each other.
+  b.add('rust', box(w + 0.4, 0.85, d + 0.4, ...f.xyz(0, g + 0.55, 0), rotY, 3.0));
   b.add('rust', box(w + 0.5, 0.55, d + 0.5, ...f.xyz(0, g + h + 0.12, 0), rotY, 3.0));
   b.add('paintCream', box(w + 0.2, 0.24, d + 0.2, ...f.xyz(0, g + h + 0.5, 0), rotY, 2.6));
 
@@ -246,10 +253,12 @@ export function storefront(b, x, z, rotY = 0, variant = 0) {
   interiorShell(b, f, w, h, d, g, rotY);
   shell(b, f, 'concrete', w, d, h, g, rotY, {
     thickness: 0.35,
+    front: null, // the painted street face below is the front wall
     back: windowRow(2, 3.0, -1.5, 4.3, 0.9, 1.2),
     left: windowRow(3, 2.8, -2.8, 4.3, 0.9, 1.2),
   });
-  // The painted street-facing wall goes on last so it wins the shared plane.
+  // The painted street-facing wall. (Phase 1 also built a solid concrete wall
+  // in the same place, which bricked up these openings and flickered.)
   b.add(paint, wallWithOpenings(w, h, 0.36, [
     { x: -w / 4 - 0.4, y: 0.75, w: w / 2 - 1.2, h: 2.5 },  // display window
     { x: w / 4 + 0.4, y: 0.75, w: w / 2 - 1.2, h: 2.5 },   // display window
@@ -563,22 +572,49 @@ export function debrisPile(b, x, z, radius = 2.6) {
   }
 }
 
-/** A road surface laid onto the terrain, following its contour. */
-export function roadStrip(b, x1, z1, x2, z2, width = 8.5) {
+/**
+ * A road surface draped over the terrain as one continuous ribbon.
+ *
+ * Every vertex sits just above the ground beneath it, so the road follows
+ * slopes instead of jutting out of them, and soft shoulders dip below the
+ * surface so no edge is left hanging. Roads that cross must be given different
+ * `lift` values: two surfaces at the same height flicker.
+ */
+export function roadStrip(b, x1, z1, x2, z2, width = 8.5, lift = 0.07) {
   const dx = x2 - x1, dz = z2 - z1;
   const len = Math.hypot(dx, dz);
-  const ang = Math.atan2(dz, dx);
-  const steps = Math.ceil(len / 6);
+  const ux = dx / len, uz = dz / len;   // along the road
+  const px = -uz, pz = ux;              // across it
+  const rows = Math.max(2, Math.ceil(len / 1.5) + 1);
+  const half = width / 2;
+  // Offsets across the road: shoulder, edge, quarter points, centre, and back.
+  const across = [-half - 0.3, -half, -half / 2, 0, half / 2, half, half + 0.3];
+  const cols = across.length;
 
-  for (let i = 0; i < steps; i++) {
-    const t0 = i / steps, t1 = (i + 1) / steps;
-    const ax = x1 + dx * t0, az = z1 + dz * t0;
-    const bx = x1 + dx * t1, bz = z1 + dz * t1;
-    const mx = (ax + bx) / 2, mz = (az + bz) / 2;
-    const segLen = Math.hypot(bx - ax, bz - az) + 0.2;
-    // Float a few centimetres proud of the ground to avoid z-fighting.
-    b.add('asphalt', box(segLen, 0.16, width, mx, groundHeight(mx, mz) + 0.08, mz, -ang, 3.2, i * 0.37));
+  const positions = [], uvs = [], indices = [];
+  for (let i = 0; i < rows; i++) {
+    const along = (i / (rows - 1)) * len;
+    for (let j = 0; j < cols; j++) {
+      const x = x1 + ux * along + px * across[j];
+      const z = z1 + uz * along + pz * across[j];
+      const isShoulder = j === 0 || j === cols - 1;
+      positions.push(x, groundHeight(x, z) + (isShoulder ? -0.06 : lift), z);
+      uvs.push(along / 3.2, across[j] / 3.2);
+    }
   }
+  for (let i = 0; i < rows - 1; i++) {
+    for (let j = 0; j < cols - 1; j++) {
+      const a = i * cols + j, c = a + cols;
+      indices.push(a, a + 1, c, a + 1, c + 1, c);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  b.add('asphalt', geo);
 }
 
 /** Distant structures on the horizon. Pure backdrop -- no collision, no detail. */

@@ -10,45 +10,62 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { groundHeight, groundSlope, groundNormal, WORLD_SIZE, WATER_LEVEL, townMask } from './terrain.js';
 import { grassTuftTexture, sagebrushTexture, dirtMaps, woodMaps } from '../render/textures.js';
 import { makeRandom } from '../core/noise.js';
-import { MAIN_STREET_Z, BACK_STREET_Z, CROSS_STREET_X } from './town.js';
+import { lit } from '../render/shadows.js';
+import { ROADS } from './town.js';
 
 // Shared clock uniform so every plant sways in the same wind.
 const windTime = { value: 0 };
 
 /**
- * Patch the wind into a standard material. The sway is driven by each
- * instance's world position so neighbouring plants move slightly out of phase,
- * which is what stops a field from looking like it's breathing in unison.
+ * Register a plant material: sun shadows, wind sway, and even lighting.
+ *
+ * Wind: the sway is driven by each instance's world position so neighbouring
+ * plants move slightly out of phase, which is what stops a field from looking
+ * like it's breathing in unison.
+ *
+ * Lighting: plants are flat cards seen from both sides. Three.js flips the
+ * surface normal on the back of a two-sided card, which lit one half of every
+ * bush and left the other half black. The cards carry an upward normal (see
+ * crossedQuads) and the flip is undone here, so a plant is lit like the
+ * ground it stands on, the same from every side.
  */
-function applyWind(material, strength = 0.09) {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uWindTime = windTime;
-    shader.uniforms.uWindStrength = { value: strength };
+function plantMaterial(material, windStrength) {
+  return lit(material, {
+    key: `plant-${windStrength}`,
+    patch(shader) {
+      shader.uniforms.uWindTime = windTime;
+      shader.uniforms.uWindStrength = { value: windStrength };
 
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', /* glsl */ `
-        #include <common>
-        uniform float uWindTime;
-        uniform float uWindStrength;
-      `)
-      .replace('#include <begin_vertex>', /* glsl */ `
-        #include <begin_vertex>
-        #ifdef USE_INSTANCING
-          vec3 windOrigin = instanceMatrix[3].xyz;
-        #else
-          vec3 windOrigin = vec3(0.0);
-        #endif
-        // Two gusts at different speeds and scales, summed.
-        float gust = sin(uWindTime * 1.15 + windOrigin.x * 0.09 + windOrigin.z * 0.07);
-        gust += 0.45 * sin(uWindTime * 2.6 + windOrigin.x * 0.31 - windOrigin.z * 0.19);
-        // Only the top of the plant moves; the root stays put.
-        float influence = max(transformed.y, 0.0) * uWindStrength;
-        transformed.x += gust * influence;
-        transformed.z += gust * influence * 0.55;
-      `);
-  };
-  // Materials with different shader patches must not share a compiled program.
-  material.customProgramCacheKey = () => `wind-${strength}`;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', /* glsl */ `
+          #include <common>
+          uniform float uWindTime;
+          uniform float uWindStrength;
+        `)
+        .replace('#include <begin_vertex>', /* glsl */ `
+          #include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 windOrigin = instanceMatrix[3].xyz;
+          #else
+            vec3 windOrigin = vec3(0.0);
+          #endif
+          // Two gusts at different speeds and scales, summed.
+          float gust = sin(uWindTime * 1.15 + windOrigin.x * 0.09 + windOrigin.z * 0.07);
+          gust += 0.45 * sin(uWindTime * 2.6 + windOrigin.x * 0.31 - windOrigin.z * 0.19);
+          // Only the top of the plant moves; the root stays put.
+          float influence = max(transformed.y, 0.0) * uWindStrength;
+          transformed.x += gust * influence;
+          transformed.z += gust * influence * 0.55;
+        `);
+
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <normal_fragment_begin>', /* glsl */ `
+          #include <normal_fragment_begin>
+          normal = normalize(vNormal);
+          nonPerturbedNormal = normal;
+        `);
+    },
+  });
 }
 
 /** Advance the wind. Called once per frame from the main loop. */
@@ -58,12 +75,20 @@ export function updateWind(elapsed) {
 
 // --- Placement rules --------------------------------------------------------
 
-/** How close a point is to the paved streets, so nothing grows in the road. */
+/**
+ * Distance in metres from a point to the edge of the nearest road. Zero or
+ * negative means the point is on the road itself.
+ */
 function distanceToRoads(x, z) {
-  const dMain = Math.abs(z - MAIN_STREET_Z) + (Math.abs(x) > 88 ? 40 : 0);
-  const dBack = Math.abs(z - BACK_STREET_Z) + (Math.abs(x) > 64 ? 40 : 0);
-  const dCross = Math.abs(x - CROSS_STREET_X) + (z < -48 || z > 16 ? 40 : 0);
-  return Math.min(dMain, dBack, dCross);
+  let nearest = Infinity;
+  for (const r of ROADS) {
+    const dx = r.x2 - r.x1, dz = r.z2 - r.z1;
+    // How far along the road the closest point lies, clamped to its two ends.
+    const t = Math.min(1, Math.max(0, ((x - r.x1) * dx + (z - r.z1) * dz) / (dx * dx + dz * dz)));
+    const d = Math.hypot(x - (r.x1 + dx * t), z - (r.z1 + dz * t)) - r.width / 2;
+    if (d < nearest) nearest = d;
+  }
+  return nearest;
 }
 
 /** True if the point sits inside any structure's footprint. */
@@ -82,7 +107,7 @@ function insideCollider(x, z, colliders, margin = 0.4) {
 function samplePlacements(count, colliders, rand, opts = {}) {
   const {
     maxSlope = 0.55,
-    minRoadDistance = 5.6,
+    minRoadDistance = 1.0,  // metres to keep clear of a road's edge
     minHeightAboveWater = 0.5,
     townDensity = 0.35,   // how much cover survives inside the settlement
     attemptsPerHit = 6,
@@ -128,12 +153,17 @@ function crossedQuads(width, height, planes = 3) {
   }
   const merged = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
+
+  // Point every normal straight up so the card takes light like the ground.
+  const normals = merged.attributes.normal;
+  for (let i = 0; i < normals.count; i++) normals.setXYZ(i, 0, 1, 0);
   return merged;
 }
 
 function buildInstanced(geometry, material, placements, rand, opts = {}) {
   const {
     minScale = 0.8, maxScale = 1.3, tiltToSlope = 0.55, receiveShadow = true, castShadow = false,
+    skipAO = false,
   } = opts;
 
   const mesh = new THREE.InstancedMesh(geometry, material, placements.length);
@@ -159,6 +189,8 @@ function buildInstanced(geometry, material, placements, rand, opts = {}) {
   mesh.castShadow = castShadow;
   mesh.receiveShadow = receiveShadow;
   mesh.frustumCulled = false; // instances span the map; culling as a unit is useless
+  // Cut-out cards must stay out of the ambient occlusion pass (see renderer.js).
+  mesh.userData.skipAO = skipAO;
   return mesh;
 }
 
@@ -201,51 +233,49 @@ export function createScatter(settings, colliders) {
   group.name = 'scatter';
 
   // --- Dry grass ---
-  const grassMat = new THREE.MeshStandardMaterial({
+  const grassMat = plantMaterial(new THREE.MeshStandardMaterial({
     map: grassTuftTexture(),
     alphaTest: 0.42,
     side: THREE.DoubleSide,
     roughness: 0.94,
     metalness: 0,
-    color: 0xc6b489,
-  });
-  applyWind(grassMat, 0.14);
+    color: 0xd8c9a0,
+  }), 0.14);
 
   const grassSpots = samplePlacements(settings.grassCount, colliders, rand, {
-    maxSlope: 0.62, minRoadDistance: 5.2, townDensity: 0.45,
+    maxSlope: 0.62, minRoadDistance: 0.6, townDensity: 0.45,
   });
   group.add(buildInstanced(crossedQuads(0.62, 0.52, 2), grassMat, grassSpots, rand, {
-    minScale: 0.7, maxScale: 1.5, tiltToSlope: 0.7,
+    minScale: 0.7, maxScale: 1.5, tiltToSlope: 0.7, skipAO: true,
   }));
 
   // --- Sagebrush ---
-  const sageMat = new THREE.MeshStandardMaterial({
+  const sageMat = plantMaterial(new THREE.MeshStandardMaterial({
     map: sagebrushTexture(),
     alphaTest: 0.4,
     side: THREE.DoubleSide,
     roughness: 0.9,
     metalness: 0,
-    color: 0xa8ad94,
-  });
-  applyWind(sageMat, 0.055);
+    color: 0xc9cdb6,
+  }), 0.055);
 
   const sageSpots = samplePlacements(settings.sageCount, colliders, rand, {
-    maxSlope: 0.5, minRoadDistance: 6.4, townDensity: 0.22,
+    maxSlope: 0.5, minRoadDistance: 1.8, townDensity: 0.22,
   });
   group.add(buildInstanced(crossedQuads(1.55, 1.25, 3), sageMat, sageSpots, rand, {
-    minScale: 0.65, maxScale: 1.35, tiltToSlope: 0.35, castShadow: false,
+    minScale: 0.65, maxScale: 1.35, tiltToSlope: 0.35, castShadow: false, skipAO: true,
   }));
 
   // --- Basalt rubble ---
   const rockMaps = dirtMaps();
-  const rockMat = new THREE.MeshStandardMaterial({
+  const rockMat = lit(new THREE.MeshStandardMaterial({
     map: rockMaps.map,
     normalMap: rockMaps.normalMap,
     roughnessMap: rockMaps.roughnessMap,
-    color: 0x5b5750,
+    color: 0x8a857c,
     roughness: 1.0,
     metalness: 0,
-  });
+  }));
 
   // A chunky low-poly boulder, jittered per instance by the scale below.
   const rockGeo = new THREE.IcosahedronGeometry(0.5, 0);
@@ -259,7 +289,7 @@ export function createScatter(settings, colliders) {
   rockGeo.computeVertexNormals();
 
   const rockSpots = samplePlacements(settings.rockCount, colliders, rand, {
-    maxSlope: 0.95, minRoadDistance: 6.0, townDensity: 0.3, minHeightAboveWater: -1.5,
+    maxSlope: 0.95, minRoadDistance: 1.4, townDensity: 0.3, minHeightAboveWater: -1.5,
   });
   group.add(buildInstanced(rockGeo, rockMat, rockSpots, rand, {
     minScale: 0.45, maxScale: 2.4, tiltToSlope: 0.2, castShadow: true,
@@ -267,7 +297,7 @@ export function createScatter(settings, colliders) {
 
   // --- Dead cottonwoods, clustered where water once reached ---
   const treeSpots = samplePlacements(Math.round(settings.rockCount * 0.09), colliders, rand, {
-    maxSlope: 0.32, minRoadDistance: 9.0, townDensity: 0.15, minHeightAboveWater: 0.4,
+    maxSlope: 0.32, minRoadDistance: 4.5, townDensity: 0.15, minHeightAboveWater: 0.4,
   }).filter((p) => p.y < 9.5);   // low ground only -- the old floodplain
 
   if (treeSpots.length) {
@@ -276,14 +306,14 @@ export function createScatter(settings, colliders) {
     for (const g of treeGeos) g.dispose();
 
     const woodTex = woodMaps();
-    const treeMat = new THREE.MeshStandardMaterial({
+    const treeMat = lit(new THREE.MeshStandardMaterial({
       map: woodTex.map,
       normalMap: woodTex.normalMap,
       roughnessMap: woodTex.roughnessMap,
-      color: 0x8a8073,
+      color: 0xd6cbbb,
       roughness: 1.0,
       metalness: 0,
-    });
+    }));
 
     const trees = new THREE.Mesh(treeMerged, treeMat);
     trees.castShadow = true;

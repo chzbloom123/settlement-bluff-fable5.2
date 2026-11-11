@@ -1,6 +1,6 @@
 # Plan v2 — Hanford Reach Settlement Builder
 
-Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: reviewed by Chaz, all decisions made. Milestone 0 is done and waiting for his playtest. Milestone 1 is next.**
+Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: Milestone 0 is merged. Milestone 1 is done and waiting for Chaz's playtest. Milestone 2 is next.**
 
 ## How this review was done
 
@@ -33,6 +33,8 @@ The previous plan called Phase 1 "done, and done well." The code is clean and we
 | 11 | The world visibly ends. | The terrain is a 420 m square with cut edges; the far bluff is a slab. | [07](docs/review/07-aerial.jpg) |
 | 12 | The river is a flat white-grey sheet. | No shoreline blend, no depth colour, and the sparkle term is too strong. | [04](docs/review/04-river-track.jpg) |
 | 13 | The character is a stack of plain boxes. | Intentional in Phase 1, but it clashes with the "big-budget 2010 game" look the grade is aiming for. | all |
+
+**After Milestone 1:** rows 1 to 8 are fixed. Rows 4, 6 and 8 were scheduled for the art pass, but 4 and 6 were also causing the flicker Chaz saw, and 8 is a lighting bug. Rows 9 to 13 remain for Milestone 3. Before and after frames are in `docs/review/m1/`.
 
 ### Problems found by reading the code
 
@@ -104,7 +106,7 @@ Each milestone is one pull request and ends at a playtest checkpoint. Sizes are 
 
 **Done when:** the shots script runs in one command (done), and you have pasted me one F4 report from your PC and, when possible, one from Brie's (still to do).
 
-### M1 — Light and exposure (M)
+### M1 — Light and exposure (M) — done
 
 The largest improvement per line of code. No geometry changes.
 
@@ -116,7 +118,12 @@ The largest improvement per line of code. No geometry changes.
 - Merge tone mapping and grading into one pass; antialias before grain.
 - Sky: thin procedural cloud layers, a real sun disc, haze that matches the fog.
 
-**Done when:** in all fixed viewpoints nothing important is unreadably dark, cars and metal read as rusted steel, shadows have clean soft edges, and the bush rectangles are gone.
+Also done here, because Chaz reported them after Milestone 0:
+
+- **Flicker.** Three causes removed: shadow edges that crawled as the player moved (the cascades snap to whole texels), surfaces sharing a plane (the storefront's double front wall, the diner's skirt, road crossings and road segment joints), and the heavy film grain.
+- **Touchy mouse.** Single huge jumps in mouse movement are now ignored, the default speed is 10% lower, and `[` and `]` change the speed and remember it.
+
+**Done when:** in all fixed viewpoints nothing important is unreadably dark, cars and metal read as rusted steel, shadows have clean soft edges, and the bush rectangles are gone. **Result:** met in the rendered frames. Near-black pixels fell from 40–60% of most frames to 5–12%. Still to confirm on real hardware: that the flicker is gone in motion, and the frame rate.
 
 ### M2 — Structure and smoothness (M)
 
@@ -131,12 +138,12 @@ The largest improvement per line of code. No geometry changes.
 
 ### M3 — World art pass (L)
 
-- Buildings: real window and door openings with frames, broken glass, trim, fascia, corrugated roofing, brick chimneys, dim interiors, sign shapes.
+- Buildings: window and door frames, broken glass, trim, fascia, corrugated roofing, brick chimneys, dim interiors instead of black boxes, sign shapes. (The storefronts' bricked-up openings were fixed in Milestone 1.)
 - Surfaces: weathering that follows edges and ground level instead of uniform spots; large-scale variation to hide tiling.
-- Roads: ribbons that follow the ground, soft edges, faded centre line, weeds in cracks; a real gravel track to the river.
+- Roads: a better asphalt surface, faded centre line, weeds in cracks; the river track as gravel. (Roads were draped over the ground in Milestone 1.)
 - Terrain: rock on steep faces, strata on the bluffs, a wet band at the shore, and a ring of low distant hills so the map never ends.
 - Water: depth colour, shoreline blend, sky reflection, calmer sparkle.
-- Plants: correct lighting, per-plant colour variation, fuller sagebrush, rabbitbrush in yellow bloom, tumbleweeds.
+- Plants: per-plant colour variation, fuller sagebrush, rabbitbrush in yellow bloom, tumbleweeds. (Plant lighting was fixed in Milestone 1.)
 - Horizon: reactor-block and stack silhouettes far off on the plateau, in haze.
 - Close-up detail on walls and ground for eye-height viewing; a tidy-up of the character body (per decision 3).
 

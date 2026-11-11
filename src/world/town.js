@@ -19,8 +19,29 @@ export const MAIN_STREET_Z = -30;
 export const BACK_STREET_Z = -2;
 export const CROSS_STREET_X = -6;
 
-/** Where the player starts: the middle of main street, facing the river. */
-export const SPAWN = { x: 4, z: MAIN_STREET_Z + 1 };
+/**
+ * Every road, as a straight run from (x1, z1) to (x2, z2). `lift` is how far
+ * the surface sits above the ground; roads that cross get different values so
+ * they never flicker against each other. Plants keep clear of these too.
+ */
+export const ROADS = [
+  { x1: -86, z1: MAIN_STREET_Z, x2: 86, z2: MAIN_STREET_Z, width: 9.0, lift: 0.07 },
+  { x1: -62, z1: BACK_STREET_Z, x2: 62, z2: BACK_STREET_Z, width: 7.0, lift: 0.07 },
+  { x1: CROSS_STREET_X, z1: -46, x2: CROSS_STREET_X, z2: 14, width: 6.5, lift: 0.05 },
+  // A track running down off the terrace to the water's edge.
+  { x1: 26, z1: -34.5, x2: 30, z2: -78, width: 5.0, lift: 0.04 },
+];
+
+/**
+ * Where the player starts: the west end of main street, looking east down its
+ * length with the sun behind. The whole town is laid out ahead -- lit shop
+ * fronts on the left, long shadows across the road, the church tower at the
+ * far end.
+ *
+ * `yaw` is the heading in radians: 0 looks north (toward the river), positive
+ * turns left (west), so a quarter turn right faces east.
+ */
+export const SPAWN = { x: -30, z: MAIN_STREET_Z - 0.5, yaw: -Math.PI / 2 };
 
 const NORTH = 0;          // building fronts face +Z, toward main street
 const SOUTH = Math.PI;    // building fronts face -Z
@@ -29,11 +50,7 @@ export function createTown() {
   const b = new MeshBuilder('town');
 
   // --- Roads -------------------------------------------------------------
-  roadStrip(b, -86, MAIN_STREET_Z, 86, MAIN_STREET_Z, 9.0);
-  roadStrip(b, -62, BACK_STREET_Z, 62, BACK_STREET_Z, 7.0);
-  roadStrip(b, CROSS_STREET_X, -46, CROSS_STREET_X, 14, 6.5);
-  // A gravel track running down off the terrace toward the water.
-  roadStrip(b, 22, -46, 30, -78, 5.0);
+  for (const r of ROADS) roadStrip(b, r.x1, r.z1, r.x2, r.z2, r.width, r.lift);
 
   // --- North side of main street -----------------------------------------
   gasStation(b, -52, -44, NORTH);
@@ -84,7 +101,7 @@ export function createTown() {
   debrisPile(b, 60, -8, 2.4);
 
   // --- Rubble where buildings have already gone ---------------------------
-  debrisPile(b, 24, -44, 5.0);   // a gap in the north commercial row
+  debrisPile(b, 31, -41, 2.8);   // a gap in the north commercial row, beside the river track
   debrisPile(b, -66, -20, 3.6);
   debrisPile(b, -6, 9.5, 3.0);   // a house lot that burned
   debrisPile(b, 62, 6, 2.8);
@@ -99,5 +116,5 @@ export function createTown() {
 
 /** The player's starting position, sitting on the ground. */
 export function spawnPoint() {
-  return { x: SPAWN.x, y: groundHeight(SPAWN.x, SPAWN.z), z: SPAWN.z };
+  return { x: SPAWN.x, y: groundHeight(SPAWN.x, SPAWN.z), z: SPAWN.z, yaw: SPAWN.yaw };
 }

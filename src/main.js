@@ -12,7 +12,10 @@ import { Input } from './core/input.js';
 import { FrameStats } from './core/framestats.js';
 import { createRenderer, createComposer, gpuName } from './render/renderer.js';
 import { createTerrain, groundHeight } from './world/terrain.js';
-import { createSky, createLighting, createFog, createWater, SUN_DIRECTION } from './world/environment.js';
+import { createSun, updateSun, resizeSun } from './render/shadows.js';
+import {
+  createSky, createSkyLight, createFog, createWater, SUN_DIRECTION, SUN_INTENSITY, PALETTE,
+} from './world/environment.js';
 import { createTown, spawnPoint } from './world/town.js';
 import { createScatter, updateWind } from './world/scatter.js';
 import { Player } from './player/player.js';
@@ -48,8 +51,14 @@ async function boot() {
   const sky = createSky();
   scene.add(sky);
 
-  const lighting = createLighting(settings);
-  scene.add(lighting.group);
+  // The sun must exist before any world geometry is built: every material is
+  // registered with it as it is created (see render/shadows.js).
+  createSun(scene, camera, settings, {
+    direction: SUN_DIRECTION,
+    color: PALETTE.sunLight,
+    intensity: SUN_INTENSITY,
+  });
+  createSkyLight(renderer, scene);
 
   hud.setProgress(0.22, 'cutting the channel');
   await yieldToBrowser();
@@ -86,10 +95,6 @@ async function boot() {
   player.setColliders(town.colliders);
   player.setCameraObstacles([terrain, town.group]);
 
-  // The shadow camera follows the player so the limited shadow map is always
-  // spent on what is actually on screen.
-  const sunOffset = SUN_DIRECTION.clone().multiplyScalar(150);
-
   const { composer, grade } = createComposer(renderer, scene, camera, settings);
 
   hud.setProgress(1.0, 'ready');
@@ -106,6 +111,8 @@ async function boot() {
   document.getElementById('start').addEventListener('click', () => input.requestPointerLock());
 
   input.onPress('KeyH', () => hud.toggleControls());
+  input.onPress('BracketLeft', () => hud.showToast(`mouse speed ${input.adjustSensitivity(1 / 1.15)}%`));
+  input.onPress('BracketRight', () => hud.showToast(`mouse speed ${input.adjustSensitivity(1.15)}%`));
   input.onPress('F3', () => hud.toggleStats());
   input.onPress('F4', () => copyReport());
   input.onPress('KeyQ', () => {
@@ -122,6 +129,7 @@ async function boot() {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     composer.setSize(window.innerWidth, window.innerHeight);
+    resizeSun(settings);
   });
 
   // --- Performance report ---
@@ -174,20 +182,15 @@ async function boot() {
   timer.connect(document);
   let elapsed = 0;
 
-  /** Keep the sun and its shadow frustum centred on the point of interest. */
-  function aimSun(focus) {
-    lighting.sun.position.copy(focus).add(sunOffset);
-    lighting.sun.target.position.copy(focus);
-    lighting.sun.target.updateMatrixWorld();
-  }
-
   function setTime(seconds) {
     updateWind(seconds);
+    sky.material.uniforms.time.value = seconds;
     water.material.uniforms.time.value = seconds;
     grade.uniforms.time.value = seconds;
   }
 
   function render() {
+    updateSun(camera); // fit the shadow cascades to wherever the camera now is
     renderer.info.reset();
     composer.render();
     drawCalls = renderer.info.render.calls;
@@ -211,8 +214,6 @@ async function boot() {
     // still, so releasing the mouse never sends them walking off a bank.
     player.update(dt, input.pointerLocked ? input : IDLE_INPUT);
 
-    // Sun and shadow frustum ride along with the player.
-    aimSun(player.position);
     setTime(elapsed);
     render();
 
@@ -236,6 +237,7 @@ async function boot() {
   const debugRequested = new URLSearchParams(window.location.search).has('debug');
   if (import.meta.env.DEV || debugRequested) {
     const focus = new THREE.Vector3();
+    const idle = { ...IDLE_INPUT };
 
     window.hanford = {
       scene, renderer, player, settings, camera, composer,
@@ -254,9 +256,24 @@ async function boot() {
         focus.set(target.x, groundHeight(target.x, target.z) + target.up, target.z);
         camera.lookAt(focus);
 
-        // Centre the shadows on the ground under the camera, as in play.
-        focus.set(eye.x, groundHeight(eye.x, eye.z), eye.z);
-        aimSun(focus);
+        setTime(10);
+        render();
+      },
+
+      /**
+       * Stop the game and draw one frame exactly as the player would see it,
+       * character included. With no argument, that is the view on arrival at
+       * the spawn point; pass { x, z, yaw } to stand somewhere else.
+       */
+      stillAsPlayer(pose = spawn) {
+        renderer.setAnimationLoop(null);
+        player.character.root.visible = true;
+        player.position.set(pose.x, groundHeight(pose.x, pose.z), pose.z);
+        player.velocity.set(0, 0, 0);
+        player.yaw = pose.yaw ?? 0;
+        player.pitch = -0.12;
+        player._initialisedCamera = false;
+        player.update(0.016, idle);
         setTime(10);
         render();
       },

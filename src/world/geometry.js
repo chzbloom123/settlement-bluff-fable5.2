@@ -13,6 +13,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import {
   concreteMaps, rustMaps, woodMaps, asphaltMaps, glassMaps, paintedMaps, chainlinkTexture,
 } from '../render/textures.js';
+import { lit } from '../render/shadows.js';
 
 // --- Materials --------------------------------------------------------------
 
@@ -22,19 +23,31 @@ let materials = null;
 export function getMaterials() {
   if (materials) return materials;
 
-  const standard = (maps, opts = {}) => new THREE.MeshStandardMaterial({
+  // Every lit material goes through lit() so it takes the sun's cascaded
+  // shadows correctly (see render/shadows.js).
+  const standard = (maps, opts = {}) => lit(new THREE.MeshStandardMaterial({
     ...maps,
     normalScale: new THREE.Vector2(1.0, 1.0),
     roughness: 1.0,
     metalness: 0.0,
     ...opts,
-  });
+  }));
 
+  // The `color` here multiplies the texture. The textures already carry the
+  // surface's real colour, so these stay close to white; a dark tint on top
+  // of a dark texture is what made the first version's town nearly black.
   materials = {
-    concrete: standard(concreteMaps(), { color: 0xb9b2a4 }),
-    rust: standard(rustMaps(), { metalness: 0.65, roughness: 0.85, color: 0xa89a8c }),
-    wood: standard(woodMaps(), { color: 0xa39d90 }),
-    asphalt: standard(asphaltMaps(), { color: 0x9c968c }),
+    concrete: standard(concreteMaps(), { color: 0xf4efe6 }),
+    // Rust itself isn't metallic -- it's a matte oxide. A little metalness
+    // keeps a dull glint where paint and bare steel survive.
+    rust: standard(rustMaps(), { metalness: 0.18, roughness: 0.9, color: 0xd6ccc2 }),
+    wood: standard(woodMaps(), { color: 0xf2ebe0 }),
+    asphalt: standard(asphaltMaps(), {
+      color: 0xffffff,
+      // Roads lie a few centimetres above the ground. This nudge keeps the two
+      // from flickering against each other in the distance.
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
+    }),
 
     // Peeling paint in a few mid-century small-town colours.
     paintCream: standard(paintedMaps('cream', 0.80, 0.74, 0.58)),
@@ -45,24 +58,24 @@ export function getMaterials() {
     // Interiors seen through empty windows. Nearly black, never lit.
     dark: new THREE.MeshBasicMaterial({ color: 0x0a0908 }),
 
-    glass: new THREE.MeshStandardMaterial({
+    glass: lit(new THREE.MeshStandardMaterial({
       ...glassMaps(),
       color: 0x9fb0b4,
       roughness: 0.14,
       metalness: 0.1,
       transparent: true,
       opacity: 0.34,
-    }),
+    })),
 
-    chainlink: new THREE.MeshStandardMaterial({
+    chainlink: lit(new THREE.MeshStandardMaterial({
       map: chainlinkTexture(),
       transparent: false,
       alphaTest: 0.42,
       side: THREE.DoubleSide,
       roughness: 0.72,
-      metalness: 0.5,
+      metalness: 0.3,
       color: 0xa6a29a,
-    }),
+    })),
   };
 
   return materials;

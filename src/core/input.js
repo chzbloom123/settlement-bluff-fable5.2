@@ -1,6 +1,19 @@
 // All keyboard and mouse handling lives here so the rest of the game can just
 // ask "is forward held?" without caring about browser events.
 
+const SENSITIVITY_KEY = 'hanford.mouse.v1';
+const MAX_MOUSE_STEP = 350; // pixels in one mouse event; anything more is a glitch
+
+function loadSensitivityScale() {
+  try {
+    const saved = parseFloat(localStorage.getItem(SENSITIVITY_KEY));
+    if (Number.isFinite(saved) && saved >= 0.2 && saved <= 3) return saved;
+  } catch {
+    // Private-browsing mode can throw on storage access. Not fatal.
+  }
+  return 1;
+}
+
 export class Input {
   constructor(canvas) {
     this.canvas = canvas;
@@ -11,7 +24,11 @@ export class Input {
     this.mouseDY = 0;
 
     this.pointerLocked = false;
-    this.sensitivity = 0.0022;
+
+    // Radians of turn per pixel of mouse travel at 100%. The player's own
+    // multiplier (the [ and ] keys) is remembered between visits.
+    this.baseSensitivity = 0.0020;
+    this.sensitivityScale = loadSensitivityScale();
 
     // Listeners registered by other systems for one-shot key presses.
     this._pressHandlers = new Map();
@@ -49,8 +66,14 @@ export class Input {
 
   _onMouseMove = (e) => {
     if (!this.pointerLocked) return;
-    this.mouseDX += e.movementX || 0;
-    this.mouseDY += e.movementY || 0;
+    const dx = e.movementX || 0;
+    const dy = e.movementY || 0;
+    // Browsers occasionally report one enormous jump while the pointer is
+    // locked (more often over remote desktop). No hand moves this far in a
+    // single event, so drop it rather than spin the view.
+    if (Math.abs(dx) > MAX_MOUSE_STEP || Math.abs(dy) > MAX_MOUSE_STEP) return;
+    this.mouseDX += dx;
+    this.mouseDY += dy;
   };
 
   _onPointerLockChange = () => {
@@ -81,10 +104,22 @@ export class Input {
   get sprint()  { return this.isDown('ShiftLeft', 'ShiftRight'); }
   get jump()    { return this.isDown('Space'); }
 
+  /** Make the mouse faster (factor > 1) or slower. Returns the new percentage. */
+  adjustSensitivity(factor) {
+    this.sensitivityScale = Math.min(3, Math.max(0.2, this.sensitivityScale * factor));
+    try {
+      localStorage.setItem(SENSITIVITY_KEY, String(this.sensitivityScale));
+    } catch {
+      // Storage unavailable: the setting just won't be remembered.
+    }
+    return Math.round(this.sensitivityScale * 100);
+  }
+
   /** Read and clear the accumulated mouse delta. Call once per frame. */
   consumeMouse() {
-    const dx = this.mouseDX * this.sensitivity;
-    const dy = this.mouseDY * this.sensitivity;
+    const sensitivity = this.baseSensitivity * this.sensitivityScale;
+    const dx = this.mouseDX * sensitivity;
+    const dy = this.mouseDY * sensitivity;
     this.mouseDX = 0;
     this.mouseDY = 0;
     return { dx, dy };

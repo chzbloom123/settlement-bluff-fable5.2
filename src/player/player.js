@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { groundHeight } from '../world/terrain.js';
+import { lit } from '../render/shadows.js';
 
 const WALK_SPEED = 3.4;
 const SPRINT_SPEED = 6.6;
@@ -36,7 +37,7 @@ function createCharacter() {
   root.name = 'player-character';
 
   const mat = (color, roughness = 0.85) =>
-    new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.0 });
+    lit(new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.0 }));
 
   const coat = mat(0x6b6047);      // faded canvas duck
   const trouser = mat(0x494741);
@@ -120,7 +121,8 @@ export class Player {
     this.velocity = new THREE.Vector3();
     this.onGround = true;
 
-    this.yaw = Math.PI;      // facing the river
+    // Yaw 0 looks north, toward the river. The spawn point can ask for another.
+    this.yaw = spawn.yaw ?? 0;
     this.pitch = -0.12;
     this.facing = this.yaw;  // the body turns to follow movement, not the camera
 
