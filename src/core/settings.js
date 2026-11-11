@@ -71,6 +71,11 @@ export function loadSettings() {
   } catch {
     // Private-browsing mode can throw on storage access. Not fatal.
   }
+  // `?q=high` in the address bar forces a preset for this visit only, without
+  // overwriting the remembered choice. Handy for testing and for screenshots.
+  const forced = new URLSearchParams(window.location.search).get('q');
+  if (forced && PRESETS[forced]) name = forced;
+
   if (!name || !PRESETS[name]) name = detectPreset();
   current = { name, ...PRESETS[name] };
   return current;

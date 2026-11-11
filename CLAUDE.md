@@ -16,7 +16,7 @@ The Hanford Reach flavor matters. Think: decayed mid-century small-town America,
 
 You (the implementing model) choose:
 
-- **Engine and stack.** Whatever you build best. Only hard requirements: runs in a normal browser, deploys as a static site to Netlify, playable with mouse/keyboard, no install for the player.  
+- **Engine and stack.** Whatever you build best. Only hard requirements: runs in a normal browser, deploys as a static site to Vercel, playable with mouse/keyboard, no install for the player.  
 - **Camera and dimensionality.** 3D, isometric, top-down — your call. Pick what lets you show off the world and keep building feel good.  
 - **Art direction.** Generate/produce the visuals however suits your strengths. Aim for atmosphere over asset count. Palette, lighting, and mood are yours to own within the Hanford Reach flavor above.  
 - **The specific content.** Which ruins exist, what resources are called, what buildable structures there are, how the town is laid out. Surprise us. A dozen buildable things done with character beats fifty done generically.
@@ -57,7 +57,7 @@ At the start of each session, read `BUILDLOG.md` (create it in Phase 1\) for cur
 - Keep the codebase navigable by a beginner: clear file names, a short `README.md` explaining how to run it locally and how it's organized, comments where logic is non-obvious. The project owner is new to modern dev tooling — when you tell him to do something in the terminal, give the exact command.  
 - Prefer boring, reliable persistence and input handling; spend the ambition budget on the world and the building feel.  
 - Performance target: smooth on a mid-range mini PC and a laptop browser. If a visual ambition threatens that, scale the ambition.  
-- Deploy target: Netlify static hosting. Keep the build output self-contained.
+- Deploy target: Vercel static hosting (it builds every push; pull requests get their own preview link). Keep the build output self-contained.
 
 ## The one-sentence test
 

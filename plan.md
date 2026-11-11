@@ -1,10 +1,10 @@
 # Plan v2 — Hanford Reach Settlement Builder
 
-Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: proposed, waiting for Chaz's review. No game code has been changed yet.**
+Written 2026-11-11. Replaces the 2026-11-10 plan (still in git history). **Status: reviewed by Chaz. Milestone 0 is done. One decision is open (first or third person). Milestone 1 is next.**
 
 ## How this review was done
 
-1. Read the brief (`settlement_builder_1.md`), the previous plan, and every file under `src/` (about 3,400 lines).
+1. Read the brief (now `CLAUDE.md`), the previous plan, and every file under `src/` (about 3,400 lines).
 2. Built the game and rendered it in headless Chromium from 12 fixed viewpoints on the High and Medium presets. Seven of those frames are in `docs/review/`.
 
 Two limits on what that tells us:
@@ -36,6 +36,7 @@ The previous plan called Phase 1 "done, and done well." The code is clean and we
 
 ### Problems found by reading the code
 
+- **A and D were swapped.** Found by Chaz in play; the sideways vector in `player.js` had both signs flipped. Fixed in Milestone 0.
 - **Nothing stops the player leaving the map or walking along the river bed.** There are no world bounds and no water handling.
 - **No building can be entered.** Every building is one solid collision box with a black box inside. That matters for a game about making a home.
 - **Building sizes depend on build order.** `ruins.js` uses one shared random stream. Rebuilding one ruin later (restore, remove) would change the size of others. Each ruin needs its own seed.
@@ -43,7 +44,8 @@ The previous plan called Phase 1 "done, and done well." The code is clean and we
 - **The starting quality is guessed from CPU core count**, which says nothing about the graphics chip. Changing quality reloads the page.
 - **All vegetation is drawn every frame**, wherever the camera points (17,000 grass + 5,200 sage instances on High, culling off).
 - **High runs about ten full-screen passes** (AO, bloom, tone map, grade, SMAA). On integrated graphics, full-screen passes are the main cost.
-- Console warnings on every load: `THREE.Clock` deprecated, `PCFSoftShadowMap` deprecated.
+- Console warnings on every load: `THREE.Clock` deprecated, `PCFSoftShadowMap` deprecated. Cleared in Milestone 0.
+- The F3 panel reported 1 draw call and 0 triangles, because it read the counters after the last post-processing pass. Fixed in Milestone 0.
 
 ## Review of the previous plan
 
@@ -56,32 +58,51 @@ The previous plan called Phase 1 "done, and done well." The code is clean and we
 | §5 Performance | Correct but too light. It has no way to measure, and misses culling, pass count and resolution scaling. |
 | Missing entirely | Any visual review, any interface design beyond a list of keys, walkable interiors, world bounds. |
 
-## Decisions I need from you
+## Decisions
 
-Each has a default. If you say "go with the defaults", I will.
+| # | Decision | Status |
+|---|---|---|
+| 1 | **Art direction:** a stylised golden-hour diorama, fully procedural. Clean shapes, strong warm light, soft shadows, a dusty palette with a few saturated accents. | Agreed |
+| 2 | **Interiors:** ruins stay closed with a dim visible interior; a building becomes walkable when Brie restores it. | Agreed |
+| 3 | **Camera:** first person or third person. | **Open** — see below |
+| 4 | **Hardware:** Brie plays on an older gaming PC, roughly a GTX 1070. The look is tuned for that machine: High preset, 60 fps at 1080p. Chaz's integrated-graphics PC must stay playable on Low for testing, but does not limit the art. | Agreed |
+| 5 | **Hosting:** Vercel only. `netlify.toml` is deleted. | Done |
+| 6 | **Merging:** one draft pull request per milestone; Chaz plays the Vercel preview and merges. | Agreed |
 
-1. **Art direction.** The code aims for "late-2000s big-budget game", but geometry made of boxes and textures made of noise cannot reach that, and the near-miss looks cheap.
-   - **A (recommended): a stylised golden-hour diorama.** Clean simple shapes, strong warm light, soft shadows, a dusty palette with a few saturated accents. Stays fully procedural, loads in seconds, runs on integrated graphics, and suits "cozy".
-   - B: asset-driven realism. Downloaded photo textures, sky photographs and 3D models. Tens of megabytes to download, heavier on Brie's machine, and the boxy buildings would still show.
-2. **Can Brie walk inside buildings?** Recommended: ruins stay closed but get a dim visible interior instead of a black box; a building becomes walkable when she restores it. It adds work to Milestone 6.
-3. **The character.** Recommended: rebuild it procedurally with better proportions and smoother animation. Alternative: a free rigged model from a CC0 pack, which is the one place Blender could earn its keep.
-4. **Brie's computer.** What will she play on? The brief says "mid-range mini PC and a laptop". I will tune Low for integrated graphics unless you tell me otherwise.
-5. **Deploy target.** Recommended: Vercel only. Delete `netlify.toml` and update the brief.
-6. **Merging.** Recommended: one draft pull request per milestone; you open the Vercel preview, play it, and merge. I do not merge.
+### Decision 3: first person or third person
+
+**Recommendation: first person, keeping the current third-person view on a toggle key.**
+
+Why first person suits this game:
+
+- **The character is the weakest thing on screen, and it is in the centre of every frame.** A procedural rebuild would be better proportioned and better animated, but it would still read as a mannequin. A real improvement needs a rigged, animated model from outside, which is the heaviest single asset job in the project.
+- **Building is more exact.** The piece goes where you look. Third-person placement has to guess between the character and the camera.
+- **Interiors work.** A third-person camera in a 3 m room fights the walls constantly. Decision 2 makes Brie's restored buildings walkable, so this matters.
+- **The town feels larger** at eye height, and gathering becomes "look at it, press E".
+- **Less camera code.** The boom collision problems in Milestone 2 mostly disappear.
+
+What it costs:
+
+- **Some people get motion sick in first person.** Mitigations: a field-of-view setting, no head bob by default, a small centre dot.
+- **Surfaces are seen from half a metre away**, so wall and ground textures need more close-up detail in Milestone 3.
+- **Brie never sees herself in her town.** The toggle answers that: the existing body stays (it has to cast a shadow anyway), so stepping back to third person costs little. The body gets a tidy-up, not a rebuild.
+
+The fixed viewpoints from `npm run shots` are already rendered at eye height, so they show what first person looks like today.
 
 ## Milestones
 
 Each milestone is one pull request and ends at a playtest checkpoint. Sizes are relative: S, M, L.
 
-### M0 — Housekeeping and measuring tools (S)
+### M0 — Housekeeping and measuring tools (S) — done
 
 - Rename the brief to `CLAUDE.md`; write `README.md` and `BUILDLOG.md`; pin Node; settle on Vercel.
 - `npm run shots`: renders the fixed viewpoints, so every visual change comes with before/after frames.
-- A performance report on **F3**: average and worst frame times, graphics chip name, preset, resolution, and a "copy" button. You paste it to me from the real machine.
+- A performance panel on **F3** (average frame rate, 1% low, worst frame, resolution, draw calls) and a full report copied to the clipboard on **F4**. You paste it to me from the real machine.
+- Fix A and D being swapped.
 - Unit tests (Vitest) for logic that must never break: save data, inventory, collision.
 - Clear the two deprecation warnings.
 
-**Done when:** the shots script runs in one command, and you have pasted me one F3 report from your small PC.
+**Done when:** the shots script runs in one command (done), and you have pasted me one F4 report from your PC and, when possible, one from Brie's (still to do).
 
 ### M1 — Light and exposure (M)
 
@@ -101,12 +122,12 @@ The largest improvement per line of code. No geometry changes.
 
 - Each ruin becomes its own record with a stable id, its own seed, its own meshes and colliders (previous plan §2).
 - Collision: a spatial grid, add/remove by id, properly rotated boxes.
-- Camera: maths-based collision, pull in fast and ease out slowly, ignore thin objects.
+- Camera (per decision 3): a first-person view with field-of-view and head-bob settings; the third-person view kept on a toggle with maths-based collision that ignores thin objects.
 - Movement: fixed 60 Hz simulation with interpolated rendering, jump once per press, a wading limit at the river, soft world bounds.
 - Culling: vegetation split into chunks; buildings culled individually.
 - Resolution that adapts to hold the frame rate; starting preset chosen by a two-second measurement; quality changes without a page reload.
 
-**Done when:** walking feels the same or better, F3 on your PC shows a steady frame rate on Low at 1080p (target 45 fps or better on integrated graphics; we agree the number after the first report), and the camera no longer pops under power lines.
+**Done when:** walking feels better than before, the High preset is designed to hold 60 fps at 1080p on a GTX 1070 (confirmed by an F4 report from Brie's PC when one is available), Low is playable on Chaz's PC (we agree the number after his first report), and the camera no longer pops under power lines.
 
 ### M3 — World art pass (L)
 
@@ -117,7 +138,7 @@ The largest improvement per line of code. No geometry changes.
 - Water: depth colour, shoreline blend, sky reflection, calmer sparkle.
 - Plants: correct lighting, per-plant colour variation, fuller sagebrush, rabbitbrush in yellow bloom, tumbleweeds.
 - Horizon: reactor-block and stack silhouettes far off on the plateau, in haze.
-- Character rebuild (per decision 3).
+- Close-up detail on walls and ground for eye-height viewing; a tidy-up of the character body (per decision 3).
 
 **Done when:** you walk the whole town on the preview and nothing reads as a placeholder.
 
@@ -151,8 +172,8 @@ As in the previous plan §4, with these changes:
 
 | Tool | Recommendation |
 |---|---|
-| Blender | **Not now.** Under direction A everything stays procedural. It becomes useful only if we choose a rigged character model or baked assets; I can install it headless here at that point. A live link to Blender on your small PC would not help. |
-| A GPU for this session | Would let me measure frame rate here. Not required: Brie's machine is the real target, and the F3 report covers it. |
+| Blender | **Not now.** The art direction is fully procedural, and first person removes the main reason to import a model. If that changes, I can install it headless here. A live link to Blender on your small PC would not help. |
+| A GPU for this session | Would let me measure frame rate here. Not required: Brie's machine is the real target, and the F4 report covers it. |
 | Vercel connector | Optional. It currently refuses access to your team scope. Authorising it lets me read preview build status and logs. |
 | New npm packages | `vitest` (tests) only. No rendering libraries beyond three.js. |
 

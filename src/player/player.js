@@ -171,7 +171,9 @@ export class Player {
   _move(dt, input) {
     // Build a movement direction in the camera's horizontal frame.
     this._forward.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    this._right.set(this._forward.z, 0, -this._forward.x);
+    // Right is forward crossed with up. (Getting these two signs backwards
+    // swaps A and D, which is exactly the bug Phase 1 shipped with.)
+    this._right.set(-this._forward.z, 0, this._forward.x);
 
     this._wish.set(0, 0, 0);
     if (input.forward) this._wish.add(this._forward);
